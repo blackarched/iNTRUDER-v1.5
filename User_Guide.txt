@@ -1,0 +1,147 @@
+iNTRUDER v1.4 – Deployment & Usage Guide
+
+1. System Requirements
+
+Requirement	Details
+
+OS	Linux (Ubuntu, Kali Linux preferred)
+Python Version	3.8+
+Node.js / server.py	Python backend (Flask)
+Dependencies	Aircrack-ng, Flask, Subprocess access, bash support
+
+
+
+---
+
+2. Initial Setup
+
+A. Extract the ZIP
+
+unzip iNTRUDER_v1.4_structured.zip
+cd iNTRUDER_v1.4_FINAL
+
+B. Run Installer (Auto-installs requirements)
+
+sudo chmod +x install.sh
+sudo ./install.sh
+
+What this does:
+
+Installs aircrack-ng, Flask
+
+Ensures Python3 & pip
+
+Grants permissions to bash scripts
+
+Verifies mon0 setup support
+
+
+
+---
+
+3. Project Structure Overview
+
+iNTRUDER_v1.4_FINAL/
+│
+├── backend/
+│   ├── server.py
+│   ├── handshake.py
+│   ├── wifi_cracker.py
+│   ├── deauth.py
+│
+├── frontend/
+│   ├── index.html
+│   ├── style.css
+│   └── script.js
+│
+├── scan.sh
+├── start-mon.sh
+├── install.sh
+└── README.md
+
+
+---
+
+4. Launch the Tool
+
+A. Start the Backend API
+
+cd backend
+python3 server.py
+
+You should see:
+
+* Running on http://localhost:5000/
+
+B. Open Dashboard
+
+1. Open a browser.
+
+
+2. Go to: http://localhost:5000
+
+
+3. You'll see your Cyberpunk dashboard with buttons.
+
+
+
+
+---
+
+5. Functional Panels – What They Do
+
+Button	What It Does
+
+Start Monitor	Enables monitor mode on the primary wireless interface (start-mon.sh)
+Scan Networks	Scans for nearby networks (scan.sh)
+Capture Handshake	Uses handshake.py to capture WPA/WPA2 handshake packets
+Deauth Attack	Performs deauthentication using deauth.py
+Crack Password	Starts password cracking using wifi_cracker.py
+Live Logs	Displays auto-updating logs from backend operations
+
+
+
+---
+
+6. Troubleshooting Tips
+
+Issue	Fix
+
+Buttons not responding	Ensure Flask is running & dashboard is open at localhost:5000
+Permission Denied	Run chmod +x *.sh on all .sh scripts
+Monitor mode not working	Interface name may differ (wlan0mon, etc.); update start-mon.sh
+Port 5000 is busy	Stop other Flask apps or change the port in server.py
+No output in terminal/log panel	Check if subprocess paths are correct & scripts are executable
+
+
+
+---
+
+7. Example Usage Flow
+
+# Start backend server
+cd backend
+python3 server.py
+
+Open browser → localhost:5000
+
+Click "Start Monitor" to enable monitor mode
+
+Click "Scan Networks"
+
+Select target manually (feature coming)
+
+Click "Capture Handshake"
+
+Then click "Deauth Attack"
+
+Finally, click "Crack Password"
+
+
+
+---
+
+8. Safe & Legal Use Notice
+
+This tool is for educational & authorized pentesting only.
+Do not use on networks without explicit permission.

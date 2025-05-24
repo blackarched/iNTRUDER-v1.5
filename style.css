@@ -1,0 +1,88 @@
+body {
+  background: linear-gradient(to right, #0f0c29, #302b63, #24243e);
+  color: #00ffea;
+  font-family: 'Orbitron', sans-serif;
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+header {
+  background: #111;
+  color: #0ff;
+  text-align: center;
+  padding: 1rem;
+  font-size: 2rem;
+  text-shadow: 0 0 8px #0ff;
+  border-bottom: 2px solid #0ff;
+}
+
+.container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.5rem;
+  padding: 2rem;
+}
+
+.panel {
+  background: #1c1c1c;
+  border: 2px solid #00ffff;
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: 0 0 12px #00ffff33;
+  transition: transform 0.3s ease;
+}
+
+.panel:hover {
+  transform: scale(1.02);
+  box-shadow: 0 0 20px #00ffff66;
+}
+
+button {
+  background: #00ffea;
+  color: #000;
+  border: none;
+  padding: 0.5rem 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  border-radius: 6px;
+  box-shadow: 0 0 10px #00ffea;
+  transition: background 0.2s ease;
+  margin-bottom: 0.5rem;
+}
+
+button:hover {
+  background: #0ff;
+}
+
+input[type="text"], input[type="file"] {
+  width: 100%;
+  padding: 0.5rem;
+  border: none;
+  border-radius: 6px;
+  margin: 0.5rem 0;
+  background: #2e2e2e;
+  color: #00ffea;
+  font-family: monospace;
+}
+
+.output {
+  white-space: pre-wrap;
+  background: #000;
+  color: #00ffea;
+  border: 1px solid #0ff;
+  border-radius: 6px;
+  padding: 0.5rem;
+  margin-top: 0.5rem;
+  min-height: 100px;
+  max-height: 300px;
+  overflow-y: auto;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 600px) {
+  .container {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>iNTRUDER v1.5 -</title>
+  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <header>
+    iNTRUDER v1.5 - WiFi Pentesting Dashboard
+  </header>
+  <main class="container">
+
+    <!-- Start Monitor Panel -->
+    <section class="panel">
+      <h2>Start Monitor Mode</h2>
+      <button id="start-mon-btn">Start</button>
+      <div id="start-mon-output" class="output"></div>
+    </section>
+
+    <!-- Handshake Scan Panel -->
+    <section class="panel">
+      <h2>Capture Handshake</h2>
+      <button id="scan-handshake-btn">Capture</button>
+      <div id="scan-handshake-output" class="output"></div>
+    </section>
+
+    <!-- Log Sniffer Panel -->
+    <section class="panel">
+      <h2>Scan & Log Networks</h2>
+      <button id="log-sniffer-btn">Scan</button>
+      <div id="log-sniffer-output" class="output"></div>
+    </section>
+
+    <!-- Deauthentication Panel -->
+    <section class="panel">
+      <h2>Deauth Attack</h2>
+      <input type="text" id="deauth-bssid" placeholder="Target BSSID" />
+      <input type="text" id="deauth-client" placeholder="Client MAC (optional)" />
+      <input type="text" id="deauth-iface" placeholder="Interface (default: wlan0mon)" />
+      <button id="deauth-btn">Execute Deauth</button>
+      <div id="deauth-output" class="output"></div>
+    </section>
+
+    <!-- Crack WPA Panel -->
+    <section class="panel">
+      <h2>Crack Handshake</h2>
+      <input type="text" id="crack-handshake" placeholder="Path to .cap file" />
+      <input type="text" id="crack-wordlist" placeholder="Path to wordlist file" />
+      <button id="crack-btn">Crack</button>
+      <div id="crack-output" class="output"></div>
+    </section>
+
+  </main>
+  <script src="script.js"></script>
+</body>
+</html>
