@@ -23,6 +23,8 @@
     <!-- Handshake Scan Panel -->
     <section class="panel">
       <h2>Capture Handshake</h2>
+      <input type="text" id="capture-iface" placeholder="Interface (e.g., wlan0mon)" />
+      <input type="text" id="capture-ssid" placeholder="Target SSID (optional)" />
       <button id="scan-handshake-btn">Capture</button>
       <div id="scan-handshake-output" class="output"></div>
     </section>
@@ -39,6 +41,7 @@
       <h2>Deauth Attack</h2>
       <input type="text" id="deauth-bssid" placeholder="Target BSSID" />
       <input type="text" id="deauth-client" placeholder="Client MAC (optional)" />
+      <input type="text" id="deauth-count" placeholder="Count (default: 10)" />
       <input type="text" id="deauth-iface" placeholder="Interface (default: wlan0mon)" />
       <button id="deauth-btn">Execute Deauth</button>
       <div id="deauth-output" class="output"></div>

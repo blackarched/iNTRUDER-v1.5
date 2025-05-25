@@ -27,20 +27,29 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("scan-handshake-btn").addEventListener("click", async () => {
-    const res = await postData("/api/scan-handshake");
+    const iface = document.getElementById("capture-iface").value;
+    const ssid = document.getElementById("capture-ssid").value;
+    // Basic validation: ensure iface is provided
+    if (!iface) {
+      showOutput("scan-handshake-output", "Error: Interface is required.", true);
+      return;
+    }
+    const res = await postData("/api/scan-handshake", { iface, ssid });
     showOutput("scan-handshake-output", JSON.stringify(res, null, 2), res.status !== "success");
   });
 
   document.getElementById("log-sniffer-btn").addEventListener("click", async () => {
-    const res = await postData("/api/log-sniffer");
+    const res = await postData("/api/scan-networks");
     showOutput("log-sniffer-output", JSON.stringify(res, null, 2), res.status !== "success");
   });
 
   document.getElementById("deauth-btn").addEventListener("click", async () => {
     const bssid = document.getElementById("deauth-bssid").value;
     const client = document.getElementById("deauth-client").value;
+    const countInput = document.getElementById("deauth-count").value;
+    const count = countInput ? parseInt(countInput) : 10;
     const iface = document.getElementById("deauth-iface").value || "wlan0mon";
-    const res = await postData("/api/deauth", { bssid, client, interface: iface });
+    const res = await postData("/api/deauth", { bssid, client, interface: iface, count: count });
     showOutput("deauth-output", JSON.stringify(res, null, 2), res.status !== "success");
   });
 
