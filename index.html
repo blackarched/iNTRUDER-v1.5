@@ -16,30 +16,38 @@
     <!-- Start Monitor Panel -->
     <section class="panel">
       <h2>Start Monitor Mode</h2>
-      <button id="start-mon-btn">Start</button>
+      <input type="text" id="monitor-iface" placeholder="Interface (e.g., wlan0, default from config)" />
+      <button id="start-mon-btn">Start Monitor</button>
       <div id="start-mon-output" class="output"></div>
     </section>
 
-    <!-- Handshake Scan Panel -->
+    <!-- Handshake Capture Panel -->
     <section class="panel">
       <h2>Capture Handshake</h2>
-      <button id="scan-handshake-btn">Capture</button>
+      <input type="text" id="capture-iface" placeholder="Monitor Interface (e.g., wlan0mon)" />
+      <input type="text" id="capture-ssid" placeholder="Target SSID (optional if BSSID given)" />
+      <input type="text" id="capture-bssid" placeholder="Target BSSID (optional if SSID given)" />
+      <input type="text" id="capture-channel" placeholder="Channel (optional)" />
+      <button id="scan-handshake-btn">Capture Handshake</button>
       <div id="scan-handshake-output" class="output"></div>
     </section>
 
-    <!-- Log Sniffer Panel -->
+    <!-- Scan Networks Panel -->
     <section class="panel">
-      <h2>Scan & Log Networks</h2>
-      <button id="log-sniffer-btn">Scan</button>
+      <h2>Scan Networks</h2>
+      <input type="text" id="scan-iface" placeholder="Monitor Interface (e.g., wlan0mon)" />
+      <input type="text" id="scan-duration" placeholder="Duration (seconds, e.g., 30)" />
+      <button id="log-sniffer-btn">Start Scan</button>
       <div id="log-sniffer-output" class="output"></div>
     </section>
 
     <!-- Deauthentication Panel -->
     <section class="panel">
       <h2>Deauth Attack</h2>
-      <input type="text" id="deauth-bssid" placeholder="Target BSSID" />
-      <input type="text" id="deauth-client" placeholder="Client MAC (optional)" />
-      <input type="text" id="deauth-iface" placeholder="Interface (default: wlan0mon)" />
+      <input type="text" id="deauth-iface" placeholder="Monitor Interface (e.g., wlan0mon)" />
+      <input type="text" id="deauth-bssid" placeholder="Target BSSID (Required)" />
+      <input type="text" id="deauth-client" placeholder="Client MAC (Default: Broadcast)" />
+      <input type="text" id="deauth-count" placeholder="Packet Count (e.g., 10)" />
       <button id="deauth-btn">Execute Deauth</button>
       <div id="deauth-output" class="output"></div>
     </section>

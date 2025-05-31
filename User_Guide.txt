@@ -1,105 +1,125 @@
-iNTRUDER v1.4 – Deployment & Usage Guide
+iNTRUDER v1.5 – Deployment & Usage Guide
 
 1. System Requirements
 
 Requirement	Details
-
 OS	Linux (Ubuntu, Kali Linux preferred)
 Python Version	3.8+
-Node.js / server.py	Python backend (Flask)
-Dependencies	Aircrack-ng, Flask, Subprocess access, bash support
-
-
+Backend	Python with Flask (Flask-CORS, Flask-SocketIO, eventlet recommended)
+Core Dependencies	Aircrack-ng suite, macchanger, wireless-tools, iproute2
+UI	Modern Web Browser. CRITICAL: `script.js` needs manual update (see PRODUCTION_CHECKLIST.md).
 
 ---
 
 2. Initial Setup
 
-A. Extract the ZIP
+A. Obtain Project Files
+   - Clone the repository or download and extract the project archive.
+   - `cd iNTRUDER_PROJECT_ROOT`
 
-unzip iNTRUDER_v1.4_structured.zip
-cd iNTRUDER_v1.4_FINAL
+B. Install System Dependencies
+   Run (or adapt for your package manager):
+   `sudo apt update && sudo apt install -y aircrack-ng macchanger wireless-tools iproute2 hostapd dnsmasq mitmproxy reaver sslstrip`
+   (Note: hostapd, dnsmasq, etc., are for advanced plugins which are currently placeholders.)
 
-B. Run Installer (Auto-installs requirements)
+C. Install Python Dependencies
+   From the project root, ideally using a virtual environment:
+   `pip install Flask Flask-CORS Flask-SocketIO eventlet`
+   (Or `pip install -r requirements.txt` if one is provided with these.)
 
-sudo chmod +x install.sh
-sudo ./install.sh
+D. Make Scripts Executable
+   `chmod +x start-mon.sh`
+   (Note: `scan.sh` is legacy; `install.sh` might need review for current setup.)
 
-What this does:
-
-Installs aircrack-ng, Flask
-
-Ensures Python3 & pip
-
-Grants permissions to bash scripts
-
-Verifies mon0 setup support
-
-
+E. Configure iNTRUDER
+   Edit `backend/config.py` to match your environment and preferences (e.g., default interface, log paths, feature flags). See README.md for details on configuration options.
 
 ---
 
 3. Project Structure Overview
 
-iNTRUDER_v1.4_FINAL/
-│
+iNTRUDER_PROJECT_ROOT/
 ├── backend/
-│   ├── server.py
-│   ├── handshake.py
-│   ├── wifi_cracker.py
-│   ├── deauth.py
-│
-├── frontend/
+│   ├── __init__.py
+│   ├── server.py                 # Main Flask server application
+│   ├── config.py                 # Core configuration settings
+│   ├── deauth_attack.py          # Deauth attack logic
+│   ├── handshake_capture_module.py # Handshake capture logic
+│   ├── wifi_cracker_module.py    # WPA/WPA2 cracking logic
+│   ├── core/
+│   │   ├── __init__.py
+│   │   ├── event_logger.py       # For session_events.jsonl
+│   │   └── network_utils.py      # Interface state checking (exists, monitor mode)
+│   ├── plugins/
+│   │   ├── __init__.py
+│   │   ├── opsec_utils.py        # MACChanger utility
+│   │   ├── scanner.py            # AdaptiveScanner (airodump-ng based)
+│   │   ├── rogue_ap.py           # Rogue AP placeholder
+│   │   ├── mitm.py               # MITM proxy placeholder
+│   │   └── wps_attack.py         # WPS attack placeholder
+│   └── reporting.py              # ReportGenerator class
+├── frontend/                     # Contains the static web UI files
 │   ├── index.html
 │   ├── style.css
-│   └── script.js
-│
-├── scan.sh
-├── start-mon.sh
-├── install.sh
-└── README.md
-
+│   └── script.js                 # CRITICAL: Needs manual update (see PRODUCTION_CHECKLIST.md)
+├── captures/                     # Default directory for handshake captures
+├── reports/                      # Default directory for generated JSON/Markdown reports
+├── intruder.log                  # Default main application log file
+├── session_events.jsonl          # Default structured event log file
+├── start-mon.sh                  # Script to enable monitor mode
+├── scan.sh                       # Legacy scan script (functionality now in AdaptiveScanner)
+├── install.sh                    # Original installer, may need updates for current deps
+├── README.md
+├── User_Guide.txt
+└── PRODUCTION_CHECKLIST.md       # New: For deployment and operational checks
 
 ---
 
 4. Launch the Tool
 
 A. Start the Backend API
+   From the project's root directory (iNTRUDER_PROJECT_ROOT):
+   `sudo python -m backend.server`
+   (Use `sudo` if operations require root privileges, which most WiFi tools do.)
 
-cd backend
-python3 server.py
-
-You should see:
-
-* Running on http://localhost:5000/
+   You should see log output indicating the server has started, e.g.:
+   `* Running on http://0.0.0.0:5000/` (or your configured port)
+   Followed by configuration validation messages.
 
 B. Open Dashboard
-
-1. Open a browser.
-
-
-2. Go to: http://localhost:5000
-
-
-3. You'll see your Cyberpunk dashboard with buttons.
-
-
-
+   1. Open a modern web browser.
+   2. Navigate to: `http://localhost:5000` (or as configured).
+   3. **IMPORTANT**: The UI may not function correctly unless `frontend/script.js` has been manually updated as per the `PRODUCTION_CHECKLIST.md`.
 
 ---
 
-5. Functional Panels – What They Do
+5. Functional Panels – What They Do (after `script.js` update)
 
-Button	What It Does
+Panel / Button	Purpose & Interaction
 
-Start Monitor	Enables monitor mode on the primary wireless interface (start-mon.sh)
-Scan Networks	Scans for nearby networks (scan.sh)
-Capture Handshake	Uses handshake.py to capture WPA/WPA2 handshake packets
-Deauth Attack	Performs deauthentication using deauth.py
-Crack Password	Starts password cracking using wifi_cracker.py
-Live Logs	Displays auto-updating logs from backend operations
+Start Monitor Mode
+  Input: Interface (e.g., wlan0, optional)
+  Action: Enables monitor mode on the specified (or default) wireless interface using `start-mon.sh`. Backend verifies.
 
+Scan Networks
+  Input: Monitor Interface (e.g., wlan0mon), Duration (seconds)
+  Action: Uses `AdaptiveScanner` (airodump-ng) to find and list nearby WiFi networks and clients. Output is JSON.
 
+Capture Handshake
+  Input: Monitor Interface, Target SSID (optional), Target BSSID (optional), Channel (optional)
+  Action: Uses `HandshakeCapture` (airodump-ng) to capture WPA/WPA2 handshake packets for a specific target.
+
+Deauth Attack
+  Input: Monitor Interface, Target BSSID (required), Client MAC (optional, default broadcast), Count (optional, default 10)
+  Action: Performs a deauthentication attack using `DeauthAttack` (aireplay-ng).
+
+Crack Handshake
+  Input: Path to .cap file (handshake capture), Path to wordlist (optional if default set in config)
+  Action: Attempts to crack the handshake using `WifiCracker` (aircrack-ng).
+
+Generate Reports (via API call, UI button may not exist yet)
+  API: `POST /api/reporting/generate`
+  Action: Processes `session_events.jsonl` to create JSON and Markdown summary reports in the `reports/` directory.
 
 ---
 
@@ -107,41 +127,20 @@ Live Logs	Displays auto-updating logs from backend operations
 
 Issue	Fix
 
-Buttons not responding	Ensure Flask is running & dashboard is open at localhost:5000
-Permission Denied	Run chmod +x *.sh on all .sh scripts
-Monitor mode not working	Interface name may differ (wlan0mon, etc.); update start-mon.sh
-Port 5000 is busy	Stop other Flask apps or change the port in server.py
-No output in terminal/log panel	Check if subprocess paths are correct & scripts are executable
-
-
-
----
-
-7. Example Usage Flow
-
-# Start backend server
-cd backend
-python3 server.py
-
-Open browser → localhost:5000
-
-Click "Start Monitor" to enable monitor mode
-
-Click "Scan Networks"
-
-Select target manually (feature coming)
-
-Click "Capture Handshake"
-
-Then click "Deauth Attack"
-
-Finally, click "Crack Password"
-
-
+UI Buttons Not Working / Errors	**CRITICAL**: Manually update `frontend/script.js` as detailed in `PRODUCTION_CHECKLIST.md`. The old script is incompatible with the new backend.
+"ModuleNotFoundError" / "ImportError"	Ensure you are running `sudo python -m backend.server` from the project's root directory.
+Permission Denied / Tool Errors	Most WiFi operations require root. Run the server with `sudo`. Ensure tools like `aircrack-ng`, `macchanger` are installed and executable by root.
+Monitor Mode Not Activating	Verify your wireless card supports monitor mode. Check output of `start-mon.sh` (logged by server). Manually test `sudo ./start-mon.sh <interface>` if needed. Check interface names with `iwconfig` or `ip link`.
+No Networks/Clients Found	Ensure monitor mode is active on the correct interface. Check antenna and proximity to APs. Review `AdaptiveScanner` logs via main `intruder.log`.
+Log Files	- `intruder.log`: Main application operational log (in project root by default).
+	- `session_events.jsonl`: Structured event log for reporting (in project root by default).
+	- `reports/`: Contains generated JSON/Markdown reports.
+	- `captures/`: Default for handshake .cap files.
 
 ---
 
-8. Safe & Legal Use Notice
+7. Safe & Legal Use Notice
 
 This tool is for educational & authorized pentesting only.
 Do not use on networks without explicit permission.
+Always respect privacy and operate within legal boundaries.
