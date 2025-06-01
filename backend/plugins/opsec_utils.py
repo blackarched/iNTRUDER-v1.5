@@ -1,10 +1,11 @@
 import logging
 import subprocess
 import re
+import os # Added for os.path.join
 # Adjust the import based on the final location of config if this were a real multi-level package.
 # For the current flat backend structure where server.py imports backend.config,
 # and opsec_utils.py is in backend.plugins, this needs to be:
-from .. import config
+from .. import config # Assuming this correctly imports the backend.config module
 from ..core.event_logger import log_event
 from ..core.network_utils import interface_exists # Import for interface check
 
@@ -38,18 +39,29 @@ class MACChanger:
         success = False
         stdout_str = ""
         stderr_str = ""
+
+        # Prepend sudo to all commands run through this method if they are not already prefixed.
+        # This is a general approach; specific command constructions below will ensure sudo is used.
+        effective_command_args = command_args
+        if command_args[0] != 'sudo':
+            # This logic might be too broad if some commands should not use sudo.
+            # For MACChanger, most operations require privileges.
+            # We will ensure specific command constructions use sudo.
+            # logger.warning(f"Command '{command_args[0]}' was not prefixed with sudo. This might change.")
+            pass # Let specific command constructions handle sudo.
+
         try:
-            logger.info(f"Executing command: {' '.join(command_args)}")
-            process = subprocess.run(command_args, capture_output=True, text=True, check=check_errors, timeout=timeout)
+            logger.info(f"Executing command via _run_command: {' '.join(effective_command_args)}")
+            process = subprocess.run(effective_command_args, capture_output=True, text=True, check=check_errors, timeout=timeout)
             stdout_str = process.stdout.strip() if process.stdout else ""
             stderr_str = process.stderr.strip() if process.stderr else ""
 
             if process.returncode == 0:
                 success = True
                 if stdout_str: logger.debug(f"Command stdout: {stdout_str}")
-                if stderr_str: logger.debug(f"Command stderr (often informational): {stderr_str}") # Changed to debug for non-erroring stderr
-            else: # Should only be reached if check_errors=False and it's a non-zero exit
-                logger.warning(f"Command '{' '.join(command_args)}' exited with code {process.returncode}.")
+                if stderr_str: logger.debug(f"Command stderr (often informational): {stderr_str}")
+            else:
+                logger.warning(f"Command '{' '.join(effective_command_args)}' exited with code {process.returncode}.")
                 if stdout_str: logger.warning(f"Stdout: {stdout_str}")
                 if stderr_str: logger.warning(f"Stderr: {stderr_str}")
 
@@ -66,22 +78,29 @@ class MACChanger:
             if stdout_str: logger.error(f"Partial stdout on timeout: {stdout_str}")
             if stderr_str: logger.error(f"Partial stderr on timeout: {stderr_str}")
         except FileNotFoundError:
-            logger.error(f"Command '{command_args[0]}' not found. Is it installed and in PATH?", exc_info=True)
-            stderr_str = f"Command '{command_args[0]}' not found."
+            cmd_name = effective_command_args[0]
+            if cmd_name == 'sudo': # If sudo itself is not found or script path is wrong
+                cmd_name = effective_command_args[1] if len(effective_command_args) > 1 else cmd_name
+            logger.error(f"Command or script '{cmd_name}' not found. Is it installed and in PATH, or is the script path correct?", exc_info=True)
+            stderr_str = f"Command or script '{cmd_name}' not found."
         except Exception as e:
-            logger.error(f"An unexpected error occurred running command '{' '.join(command_args)}'", exc_info=True)
+            logger.error(f"An unexpected error occurred running command '{' '.join(effective_command_args)}'", exc_info=True)
             stderr_str = str(e)
 
         return success, stdout_str, stderr_str
 
     def _bring_interface_down(self, interface: str) -> bool:
-        logger.info(f"Bringing interface {interface} down.")
-        success, _, _ = self._run_command(['ip', 'link', 'set', 'dev', interface, 'down'])
+        logger.info(f"Bringing interface {interface} down using sudo and wrapper script.")
+        script_path = os.path.join(config.WRAPPER_SCRIPT_DIR, 'set_if_state.sh')
+        cmd = [config.SUDO_COMMAND, script_path, interface, 'down']
+        success, _, _ = self._run_command(cmd)
         return success
 
     def _bring_interface_up(self, interface: str) -> bool:
-        logger.info(f"Bringing interface {interface} up.")
-        success, _, _ = self._run_command(['ip', 'link', 'set', 'dev', interface, 'up'])
+        logger.info(f"Bringing interface {interface} up using sudo and wrapper script.")
+        script_path = os.path.join(config.WRAPPER_SCRIPT_DIR, 'set_if_state.sh')
+        cmd = [config.SUDO_COMMAND, script_path, interface, 'up']
+        success, _, _ = self._run_command(cmd)
         return success
 
     def _parse_macchanger_output(self, output: str) -> tuple[str | None, str | None]:
@@ -113,226 +132,174 @@ class MACChanger:
         if not interface_exists(interface):
             logger.error(f"Interface {interface} does not exist. Cannot get MAC address.")
             return None
-        logger.info(f"Getting current MAC for {interface}.")
-        success, stdout_str, _ = self._run_command(['macchanger', '-s', interface], check_errors=False)
-        if success or "Permanent MAC" in stdout_str:
+        logger.info(f"Getting current MAC for {interface} using sudo and wrapper script.")
+        script_path = os.path.join(config.WRAPPER_SCRIPT_DIR, 'macchanger_show.sh')
+        cmd = [config.SUDO_COMMAND, script_path, interface]
+        success, stdout_str, _ = self._run_command(cmd, check_errors=False)
+
+        # If macchanger_show.sh directly outputs macchanger -s results, parsing should be similar.
+        # Success of the script is primary; "Permanent MAC" might not be in direct output if script filters.
+        if success and stdout_str: # Rely on script success and non-empty output
             current, _ = self._parse_macchanger_output(stdout_str)
-            return current
-        logger.warning(f"Failed to get current MAC for {interface} or parse output. stdout: {stdout_str}")
+            if current:
+                return current
+            else: # Script succeeded but output parsing failed.
+                logger.warning(f"macchanger_show.sh for {interface} succeeded, but output parsing failed. stdout: {stdout_str}")
+                return None # Or perhaps return stdout_str if it's expected to be just the MAC
+
+        logger.warning(f"Failed to get current MAC for {interface} using script. stdout: {stdout_str}")
         return None
 
     def set_mac_random(self, interface: str) -> tuple[str | None, str | None]:
         if not interface_exists(interface):
             logger.error(f"Interface {interface} does not exist. Cannot set random MAC.")
             return None, None
-        logger.info(f"Attempting to set random MAC for {interface}.")
-        original_mac = self.get_current_mac(interface) # Get current MAC before changing
+        logger.info(f"Attempting to set random MAC for {interface} using sudo and wrapper script.")
+        original_mac = self.get_current_mac(interface)
         interface_was_brought_down = False
         try:
-            if self._bring_interface_down(interface):
+            if self._bring_interface_down(interface): # Uses wrapper
                 interface_was_brought_down = True
             else:
-                logger.warning(f"Continuing to attempt MAC change for {interface} despite failure to bring it down first.")
+                logger.warning(f"Continuing to attempt MAC change for {interface} (random) despite failure to bring it down first.")
 
-            success, stdout_str, _ = self._run_command(['macchanger', '-r', interface])
+            script_path = os.path.join(config.WRAPPER_SCRIPT_DIR, 'macchanger_set_random.sh')
+            cmd = [config.SUDO_COMMAND, script_path, interface]
+            success, stdout_str, _ = self._run_command(cmd)
 
             if success and stdout_str:
                 new_mac, perm_mac = self._parse_macchanger_output(stdout_str)
                 if new_mac:
                     logger.info(f"Successfully set random MAC for {interface} to {new_mac} (Permanent: {perm_mac}). Original was: {original_mac}")
-                    log_event("mac_address_changed", {"interface": interface, "old_mac": original_mac, "new_mac": new_mac, "permanent_mac": perm_mac, "method": "random"})
-                else: # macchanger command succeeded but output parsing failed
-                    logger.warning(f"Could not parse new MAC from macchanger -r output for {interface}. Output: {stdout_str}")
+                    log_event("mac_address_changed", {"interface": interface, "old_mac": original_mac, "new_mac": new_mac, "permanent_mac": perm_mac, "method": "random_script"})
+                else:
+                    logger.warning(f"macchanger_set_random.sh for {interface} succeeded, but output parsing failed. Output: {stdout_str}")
                 return new_mac, perm_mac
 
-            logger.error(f"Failed to set random MAC for {interface}. macchanger command stdout: {stdout_str}")
+            logger.error(f"Failed to set random MAC for {interface} using script. macchanger_set_random.sh stdout: {stdout_str}")
             return None, None
         finally:
-            if interface_was_brought_down or not interface_exists(interface): # Attempt to bring up if we brought it down, or if it's unexpectedly down
-                if not self._bring_interface_up(interface):
-                    logger.error(f"CRITICAL: Interface {interface} was left down after set_mac_random attempt.")
+            # Ensure interface is brought up if it was taken down or is unexpectedly down
+            if interface_was_brought_down or not self._is_interface_up(interface): # _is_interface_up also uses wrapper
+                if not self._bring_interface_up(interface): # Uses wrapper
+                    logger.error(f"CRITICAL: Interface {interface} was left down after set_mac_random (script) attempt.")
                 else:
-                    logger.info(f"Interface {interface} brought back up after set_mac_random attempt.")
-            elif self._is_interface_up(interface): # Check if it's already up if we didn't bring it down
-                 logger.debug(f"Interface {interface} is already up after set_mac_random attempt.")
-            else: # If it's down and we didn't bring it down, it might be an issue.
-                 logger.warning(f"Interface {interface} is unexpectedly down after set_mac_random and was not managed by this method.")
-
+                    logger.info(f"Interface {interface} brought back up after set_mac_random (script) attempt.")
+            elif self._is_interface_up(interface):
+                 logger.debug(f"Interface {interface} is already up after set_mac_random (script) attempt.")
+            else:
+                 logger.warning(f"Interface {interface} is unexpectedly down after set_mac_random (script) and was not managed by this method.")
 
     def _is_interface_up(self, interface: str) -> bool:
-        """Helper to check if interface is operationally up."""
+        """Helper to check if interface is operationally up using a wrapper script."""
         if not interface_exists(interface): return False
-        # This is a simplified check. `ip link show <iface>` output contains 'state UP' or 'state DOWN' etc.
-        # For brevity, assuming if it exists and macchanger didn't error out majorly, it's likely up or can be brought up.
-        # A more robust check would parse `ip link show` state.
-        # For now, this is a placeholder if more detailed check is needed.
-        # This method is not strictly required if _bring_interface_up is called in finally.
-        try:
-            result = subprocess.run(['ip', 'link', 'show', interface], capture_output=True, text=True)
-            if result.returncode == 0 and "state UP" in result.stdout:
-                return True
-        except Exception:
-            pass # Fall through to false
+        logger.debug(f"Checking UP state for {interface} using sudo and wrapper script.")
+        # This script would need to parse 'ip link show <interface>' output for 'state UP'
+        script_path = os.path.join(config.WRAPPER_SCRIPT_DIR, 'get_if_state.sh')
+        cmd = [config.SUDO_COMMAND, script_path, interface]
+        success, stdout_str, _ = self._run_command(cmd) # stdout_str expected to be "UP" or "DOWN" or "UNKNOWN"
+        if success and stdout_str.upper() == "UP":
+            logger.debug(f"Interface {interface} reported as UP by script.")
+            return True
+        logger.debug(f"Interface {interface} reported as not UP by script (or script failed). State: '{stdout_str}'")
         return False
 
-
     def set_mac_specific(self, interface: str, new_mac_address: str) -> tuple[str | None, str | None]:
-        logger.info(f"Attempting to set MAC for {interface} to {new_mac_address}.")
-        if not interface_exists(interface): # Check added here for consistency, though get_current_mac would also check
+        logger.info(f"Attempting to set MAC for {interface} to {new_mac_address} using sudo and wrapper script.")
+        if not interface_exists(interface):
             logger.error(f"Interface {interface} does not exist. Cannot set specific MAC.")
             return None, None
         original_mac = self.get_current_mac(interface)
         interface_was_brought_down = False
         try:
-            if self._bring_interface_down(interface):
+            if self._bring_interface_down(interface): # Uses wrapper
                 interface_was_brought_down = True
             else:
                 logger.warning(f"Continuing to attempt MAC change for {interface} to {new_mac_address} despite failure to bring it down first.")
 
-            success, stdout_str, _ = self._run_command(['macchanger', '-m', new_mac_address, interface])
+            script_path = os.path.join(config.WRAPPER_SCRIPT_DIR, 'macchanger_set_specific.sh')
+            cmd = [config.SUDO_COMMAND, script_path, new_mac_address, interface]
+            success, stdout_str, _ = self._run_command(cmd)
 
             if success and stdout_str:
                 changed_mac, perm_mac = self._parse_macchanger_output(stdout_str)
                 if changed_mac and changed_mac.lower() == new_mac_address.lower():
                     logger.info(f"Successfully set MAC for {interface} to {changed_mac} (Permanent: {perm_mac}). Original was: {original_mac}")
-                    log_event("mac_address_changed", {"interface": interface, "old_mac": original_mac, "new_mac": changed_mac, "permanent_mac": perm_mac, "method": "specific"})
+                    log_event("mac_address_changed", {"interface": interface, "old_mac": original_mac, "new_mac": changed_mac, "permanent_mac": perm_mac, "method": "specific_script"})
                 elif changed_mac:
-                    logger.warning(f"MAC for {interface} changed to {changed_mac}, not the requested {new_mac_address}. Permanent: {perm_mac}. Original was: {original_mac}")
-                    log_event("mac_address_changed_unexpected", {"interface": interface, "old_mac": original_mac, "requested_mac": new_mac_address, "actual_new_mac": changed_mac, "permanent_mac": perm_mac, "method": "specific"})
-                else: # macchanger command succeeded but output parsing failed
-                    logger.warning(f"Could not parse new MAC from macchanger -m output for {interface}. Output: {stdout_str}")
+                    logger.warning(f"MAC for {interface} changed to {changed_mac} via script, not the requested {new_mac_address}. Permanent: {perm_mac}. Original was: {original_mac}")
+                    log_event("mac_address_changed_unexpected", {"interface": interface, "old_mac": original_mac, "requested_mac": new_mac_address, "actual_new_mac": changed_mac, "permanent_mac": perm_mac, "method": "specific_script"})
+                else:
+                    logger.warning(f"macchanger_set_specific.sh for {interface} succeeded, but output parsing failed. Output: {stdout_str}")
                 return changed_mac, perm_mac
 
-            logger.error(f"Failed to set MAC for {interface} to {new_mac_address}. macchanger command stdout: {stdout_str}")
+            logger.error(f"Failed to set MAC for {interface} to {new_mac_address} using script. macchanger_set_specific.sh stdout: {stdout_str}")
             return None, None
         finally:
-            if interface_was_brought_down or not self._is_interface_up(interface): # Check _is_interface_up as a fallback
-                if not self._bring_interface_up(interface):
-                    logger.error(f"CRITICAL: Interface {interface} was left down after set_mac_specific attempt.")
+            if interface_was_brought_down or not self._is_interface_up(interface): # Uses wrapper
+                if not self._bring_interface_up(interface): # Uses wrapper
+                    logger.error(f"CRITICAL: Interface {interface} was left down after set_mac_specific (script) attempt.")
                 else:
-                    logger.info(f"Interface {interface} brought back up after set_mac_specific attempt.")
+                    logger.info(f"Interface {interface} brought back up after set_mac_specific (script) attempt.")
             elif self._is_interface_up(interface):
-                 logger.debug(f"Interface {interface} is already up after set_mac_specific attempt.")
+                 logger.debug(f"Interface {interface} is already up after set_mac_specific (script) attempt.")
             else:
-                 logger.warning(f"Interface {interface} is unexpectedly down after set_mac_specific and was not managed by this method.")
-
+                 logger.warning(f"Interface {interface} is unexpectedly down after set_mac_specific (script) and was not managed by this method.")
 
     def revert_to_original_mac(self, interface: str) -> tuple[str | None, str | None]:
-        logger.info(f"Attempting to revert MAC for {interface} to permanent hardware MAC.")
-        if not interface_exists(interface): # Check added here
+        logger.info(f"Attempting to revert MAC for {interface} to permanent hardware MAC using sudo and wrapper script.")
+        if not interface_exists(interface):
             logger.error(f"Interface {interface} does not exist. Cannot revert MAC.")
             return None, None
         current_mac_before_revert = self.get_current_mac(interface)
         interface_was_brought_down = False
         try:
-            if self._bring_interface_down(interface):
+            if self._bring_interface_down(interface): # Uses wrapper
                 interface_was_brought_down = True
             else:
                 logger.warning(f"Continuing to attempt MAC reversion for {interface} despite failure to bring it down first.")
 
-            success, stdout_str, _ = self._run_command(['macchanger', '-p', interface])
+            script_path = os.path.join(config.WRAPPER_SCRIPT_DIR, 'macchanger_revert_perm.sh')
+            cmd = [config.SUDO_COMMAND, script_path, interface]
+            success, stdout_str, _ = self._run_command(cmd)
 
             if success and stdout_str:
                 restored_mac, perm_mac = self._parse_macchanger_output(stdout_str)
                 if restored_mac and perm_mac and restored_mac.lower() == perm_mac.lower():
-                    logger.info(f"Successfully reverted MAC for {interface} to permanent MAC: {restored_mac}. Previous MAC was: {current_mac_before_revert}")
-                    log_event("mac_address_reverted", {"interface": interface, "reverted_from_mac": current_mac_before_revert, "reverted_to_mac": restored_mac, "permanent_mac": perm_mac})
+                    logger.info(f"Successfully reverted MAC for {interface} to permanent MAC: {restored_mac} via script. Previous MAC was: {current_mac_before_revert}")
+                    log_event("mac_address_reverted", {"interface": interface, "reverted_from_mac": current_mac_before_revert, "reverted_to_mac": restored_mac, "permanent_mac": perm_mac, "method": "revert_script"})
                 elif restored_mac:
-                     logger.warning(f"MAC for {interface} reverted by 'macchanger -p' to {restored_mac}, but permanent MAC reported as {perm_mac}. Previous MAC: {current_mac_before_revert}")
-                     log_event("mac_address_reverted_mismatch", {"interface": interface, "reverted_from_mac": current_mac_before_revert, "reverted_to_mac": restored_mac, "permanent_mac": perm_mac})
+                     logger.warning(f"MAC for {interface} reverted by script to {restored_mac}, but permanent MAC reported as {perm_mac}. Previous MAC: {current_mac_before_revert}")
+                     log_event("mac_address_reverted_mismatch", {"interface": interface, "reverted_from_mac": current_mac_before_revert, "reverted_to_mac": restored_mac, "permanent_mac": perm_mac, "method": "revert_script"})
                 else:
-                    logger.warning(f"Could not parse reverted MAC from macchanger -p output for {interface}. Output: {stdout_str}")
+                    logger.warning(f"macchanger_revert_perm.sh for {interface} succeeded, but output parsing failed. Output: {stdout_str}")
                 return restored_mac, perm_mac
 
-            logger.error(f"Failed to revert MAC for {interface} to permanent hardware MAC. macchanger command stdout: {stdout_str}")
+            logger.error(f"Failed to revert MAC for {interface} to permanent hardware MAC using script. macchanger_revert_perm.sh stdout: {stdout_str}")
             return None, None
         finally:
-            if interface_was_brought_down or not self._is_interface_up(interface):
-                if not self._bring_interface_up(interface):
-                    logger.error(f"CRITICAL: Interface {interface} was left down after revert_to_original_mac attempt.")
+            if interface_was_brought_down or not self._is_interface_up(interface): # Uses wrapper
+                if not self._bring_interface_up(interface): # Uses wrapper
+                    logger.error(f"CRITICAL: Interface {interface} was left down after revert_to_original_mac (script) attempt.")
                 else:
-                    logger.info(f"Interface {interface} brought back up after revert_to_original_mac attempt.")
+                    logger.info(f"Interface {interface} brought back up after revert_to_original_mac (script) attempt.")
             elif self._is_interface_up(interface):
-                 logger.debug(f"Interface {interface} is already up after revert_to_original_mac attempt.")
+                 logger.debug(f"Interface {interface} is already up after revert_to_original_mac (script) attempt.")
             else:
-                 logger.warning(f"Interface {interface} is unexpectedly down after revert_to_original_mac and was not managed by this method.")
+                 logger.warning(f"Interface {interface} is unexpectedly down after revert_to_original_mac (script) and was not managed by this method.")
 
 if __name__ == '__main__':
     # This is for basic testing of the MACChanger class itself.
     # Requires running as root and a valid interface (e.g., wlan0, eth0).
-            new_mac, perm_mac = self._parse_macchanger_output(stdout_str)
-            if new_mac:
-                logger.info(f"Successfully set random MAC for {interface} to {new_mac} (Permanent: {perm_mac}). Original was: {original_mac}")
-                log_event("mac_address_changed", {"interface": interface, "old_mac": original_mac, "new_mac": new_mac, "permanent_mac": perm_mac, "method": "random"})
-            else: # macchanger command succeeded but output parsing failed
-                logger.warning(f"Could not parse new MAC from macchanger -r output for {interface}. Output: {stdout_str}")
-            return new_mac, perm_mac
+    # The wrapper scripts (/opt/intruder/scripts/*) would need to exist and be correctly configured in sudoers.
+    # Since we are not creating the scripts in this task, this test block will not fully function as intended.
+    # It's here for conceptual understanding of how it would be tested.
 
-        logger.error(f"Failed to set random MAC for {interface}. macchanger command stdout: {stdout_str}")
-        return None, None
-
-    def set_mac_specific(self, interface: str, new_mac_address: str) -> tuple[str | None, str | None]:
-        logger.info(f"Attempting to set MAC for {interface} to {new_mac_address}.")
-        if not interface_exists(interface): # Check added here for consistency, though get_current_mac would also check
-            logger.error(f"Interface {interface} does not exist. Cannot set specific MAC.")
-            return None, None
-        original_mac = self.get_current_mac(interface)
-
-        if not self._bring_interface_down(interface):
-            logger.warning(f"Continuing to attempt MAC change for {interface} to {new_mac_address} despite failure to bring it down first.")
-
-        success, stdout_str, _ = self._run_command(['macchanger', '-m', new_mac_address, interface])
-
-        if not self._bring_interface_up(interface):
-            logger.warning(f"Failed to bring interface {interface} up after attempting to set specific MAC.")
-
-        if success and stdout_str:
-            changed_mac, perm_mac = self._parse_macchanger_output(stdout_str)
-            if changed_mac and changed_mac.lower() == new_mac_address.lower():
-                logger.info(f"Successfully set MAC for {interface} to {changed_mac} (Permanent: {perm_mac}). Original was: {original_mac}")
-                log_event("mac_address_changed", {"interface": interface, "old_mac": original_mac, "new_mac": changed_mac, "permanent_mac": perm_mac, "method": "specific"})
-            elif changed_mac:
-                logger.warning(f"MAC for {interface} changed to {changed_mac}, not the requested {new_mac_address}. Permanent: {perm_mac}. Original was: {original_mac}")
-                log_event("mac_address_changed_unexpected", {"interface": interface, "old_mac": original_mac, "requested_mac": new_mac_address, "actual_new_mac": changed_mac, "permanent_mac": perm_mac, "method": "specific"})
-            else: # macchanger command succeeded but output parsing failed
-                logger.warning(f"Could not parse new MAC from macchanger -m output for {interface}. Output: {stdout_str}")
-            return changed_mac, perm_mac
-
-        logger.error(f"Failed to set MAC for {interface} to {new_mac_address}. macchanger command stdout: {stdout_str}")
-        return None, None
-
-    def revert_to_original_mac(self, interface: str) -> tuple[str | None, str | None]:
-        logger.info(f"Attempting to revert MAC for {interface} to permanent hardware MAC.")
-        if not interface_exists(interface): # Check added here
-            logger.error(f"Interface {interface} does not exist. Cannot revert MAC.")
-            return None, None
-        current_mac_before_revert = self.get_current_mac(interface)
-
-        if not self._bring_interface_down(interface):
-            logger.warning(f"Continuing to attempt MAC reversion for {interface} despite failure to bring it down first.")
-
-        success, stdout_str, _ = self._run_command(['macchanger', '-p', interface])
-
-        if not self._bring_interface_up(interface):
-            logger.warning(f"Failed to bring interface {interface} up after attempting to revert MAC.")
-
-        if success and stdout_str:
-            restored_mac, perm_mac = self._parse_macchanger_output(stdout_str)
-            if restored_mac and perm_mac and restored_mac.lower() == perm_mac.lower():
-                logger.info(f"Successfully reverted MAC for {interface} to permanent MAC: {restored_mac}. Previous MAC was: {current_mac_before_revert}")
-                log_event("mac_address_reverted", {"interface": interface, "reverted_from_mac": current_mac_before_revert, "reverted_to_mac": restored_mac, "permanent_mac": perm_mac})
-            elif restored_mac:
-                 logger.warning(f"MAC for {interface} reverted by 'macchanger -p' to {restored_mac}, but permanent MAC reported as {perm_mac}. Previous MAC: {current_mac_before_revert}")
-                 log_event("mac_address_reverted_mismatch", {"interface": interface, "reverted_from_mac": current_mac_before_revert, "reverted_to_mac": restored_mac, "permanent_mac": perm_mac})
-            else:
-                logger.warning(f"Could not parse reverted MAC from macchanger -p output for {interface}. Output: {stdout_str}")
-            return restored_mac, perm_mac
-
-        logger.error(f"Failed to revert MAC for {interface} to permanent hardware MAC. macchanger command stdout: {stdout_str}")
-        return None, None
-
-if __name__ == '__main__':
-    # This is for basic testing of the MACChanger class itself.
+    # Duplicated code from lines 216-283 has been removed from here to avoid confusion.
+    # The original test code structure is preserved below.
+    # Setup basic logging for the test
+    test_logger = logging.getLogger()
+    test_logger.setLevel(logging.DEBUG) # Show all logs for testing
     # Requires running as root and a valid interface (e.g., wlan0, eth0).
     # Replace 'your_interface' with an actual interface.
     # Ensure 'macchanger' and 'ip' commands are available.

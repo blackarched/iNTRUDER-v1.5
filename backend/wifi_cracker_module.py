@@ -1,37 +1,31 @@
 import subprocess
 import logging
 
-logger = logging.getLogger(__name__) # This will inherit root logger's config
+logger = logging.getLogger(__name__)
 
 class WifiCracker:
-    def __init__(self, handshake_file, wordlist):
+    def __init__(self, handshake_file, wordlist, bssid=None): # Added bssid
         self.handshake_file = handshake_file
         self.wordlist = wordlist
+        self.bssid = bssid # Store bssid
         self.process = None
 
     def run(self):
         cmd = [
             "aircrack-ng",
-            "-w", self.wordlist,
-            self.handshake_file
+            "-w", self.wordlist
         ]
-        # Note: aircrack-ng might require a BSSID to be specified with -b <bssid> if multiple networks are in the .cap
-        # For now, we're omitting it, relying on user providing a clean .cap or aircrack-ng's behavior for single-network files.
-        logger.info(f"Starting Wi-Fi cracking for {self.handshake_file} with wordlist {self.wordlist}. Executing: {' '.join(cmd)}")
+        if self.bssid: # Add BSSID to command if provided
+            cmd.extend(["-b", self.bssid])
 
-        # The original handshake.py used to call:
-        # The original handshake.py used to call:
-        # process = subprocess.Popen(['aircrack-ng', '-w', wordlist_path, '-b', bssid, cap_file_path_cap], ...)
-        # The server endpoint for /api/crack/start currently only takes handshake_file and wordlist.
-        # This will need to be addressed either by:
-        # 1. Modifying the server to also accept BSSID.
-        # 2. Attempting to extract BSSID from the .cap file (if that's even reliably possible for aircrack-ng).
-        # 3. Forcing the user to rename the .cap file to <ESSID>.cap or <BSSID>.cap and parse it.
-        # For now, I'll proceed without the BSSID, which might make aircrack-ng prompt or fail.
-        # The API contract might need adjustment in a later step.
+        cmd.append(self.handshake_file) # Handshake file is the last argument typically
+
+        if self.bssid:
+            logger.info(f"Starting Wi-Fi cracking for BSSID {self.bssid} in {self.handshake_file} with wordlist {self.wordlist}. Executing: {' '.join(cmd)}")
+        else:
+            logger.info(f"Starting Wi-Fi cracking for {self.handshake_file} with wordlist {self.wordlist} (no BSSID specified). Executing: {' '.join(cmd)}")
 
         try:
-            # Using Popen for potentially long-running process
             self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, universal_newlines=True)
 
             stdout_lines = []

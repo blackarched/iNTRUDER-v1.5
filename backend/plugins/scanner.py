@@ -128,64 +128,68 @@ class AdaptiveScanner:
                 logger.info(f"MAC change not enabled or macchanger not available for scan on {self.interface}.")
 
             # --write-interval 1 is frequent, consider 5 for longer scans if disk I/O is an issue.
-            cmd = ["airodump-ng", "--write", output_prefix, "--write-interval", "1", "--output-format", "csv", self.interface]
+            # Command construction for run_airodump_scan.sh
+            # The script will internally call airodump-ng.
+            # Pass necessary parameters for airodump-ng to the script.
+            script_path = os.path.join(config.WRAPPER_SCRIPT_DIR, 'run_airodump_scan.sh')
+            cmd = [
+                config.SUDO_COMMAND, script_path,
+                "--write", output_prefix,
+                "--write-interval", "1", # This might be managed by the script if it needs specific timing
+                "--output-format", "csv",
+                self.interface
+            ]
 
-            logger.info(f"Starting airodump-ng scan: {' '.join(cmd)}")
+            logger.info(f"Starting airodump-ng scan via wrapper script: {' '.join(cmd)}")
             process = None
             try:
-                # Popen does not accept 'check=True' directly, and we manage errors manually.
                 process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='ignore')
-                logger.info(f"Airodump-ng process started (PID: {process.pid}). Scanning for {duration_seconds} seconds...")
+                logger.info(f"run_airodump_scan.sh process started (PID: {process.pid}). Scanning for {duration_seconds} seconds...")
 
-                # Allow airodump-ng to run for the specified duration
-                try:
-                    # This is a blocking wait, but airodump-ng doesn't self-terminate by duration.
-                    # We rely on the terminate() call after a delay.
-                    # stdout, stderr = process.communicate(timeout=duration_seconds + 10) # Give extra 10s for graceful exit after duration
-                    # The above communicate() would wait for process to end or timeout.
-                    # Instead, we sleep then terminate.
-                    time.sleep(duration_seconds)
-                except KeyboardInterrupt: # Allow manual interruption of scan
-                    logger.info("Scan duration interrupted by user.")
-                    # Fall through to finally block for termination
-                    raise # Re-raise to stop the scan method if desired, or handle differently
+                time.sleep(duration_seconds) # Main scan duration
 
             except FileNotFoundError:
-                logger.error(f"Command 'airodump-ng' not found. Please ensure aircrack-ng suite is installed.", exc_info=True)
-                # No process to terminate or clean up here beyond the main finally block
-                return {"networks": [], "clients": [], "error": "airodump-ng not found"}
+                # Check if it's the sudo command or the script itself
+                actual_cmd_not_found = cmd[0] if not os.path.exists(cmd[1]) else cmd[1] # A bit simplistic, assumes script is second if sudo is first
+                if cmd[0] == config.SUDO_COMMAND and not shutil.which(config.SUDO_COMMAND): # Check if sudo itself is missing
+                    actual_cmd_not_found = config.SUDO_COMMAND
+                elif not os.path.exists(script_path):
+                     actual_cmd_not_found = script_path
+
+                logger.error(f"Command '{actual_cmd_not_found}' not found. Please ensure it is in PATH and/or WRAPPER_SCRIPT_DIR is correct.", exc_info=True)
+                return {"networks": [], "clients": [], "error": f"Command '{actual_cmd_not_found}' not found."}
             except Exception as e_popen:
-                logger.error(f"Failed to start airodump-ng process: {e_popen}", exc_info=True)
-                return {"networks": [], "clients": [], "error": f"airodump-ng Popen failed: {e_popen}"}
+                logger.error(f"Failed to start run_airodump_scan.sh process: {e_popen}", exc_info=True)
+                return {"networks": [], "clients": [], "error": f"run_airodump_scan.sh Popen failed: {e_popen}"}
             finally:
                 stdout_final, stderr_final = "", ""
-                if process and process.poll() is None:
-                    logger.info(f"Scan duration ended. Terminating airodump-ng process (PID: {process.pid})...")
+                if process and process.poll() is None: # If process is still running
+                    logger.info(f"Scan duration ended. Terminating run_airodump_scan.sh process (PID: {process.pid})...")
+                    # Sending SIGTERM to sudo, which should propagate to the script and then to airodump-ng.
+                    # The script needs to handle SIGTERM gracefully to stop airodump-ng.
                     process.terminate()
                     try:
-                        # Wait for process to terminate and get final outputs
-                        stdout_final, stderr_final = process.communicate(timeout=15) # Increased timeout for communicate after terminate
-                        logger.info(f"Airodump-ng process (PID: {process.pid}) terminated successfully.")
+                        stdout_final, stderr_final = process.communicate(timeout=20) # Increased timeout for script + airodump
+                        logger.info(f"run_airodump_scan.sh process (PID: {process.pid}) terminated with code {process.returncode}.")
                     except subprocess.TimeoutExpired:
-                        logger.warning(f"Airodump-ng process (PID: {process.pid}) did not terminate gracefully after 15s. Killing.")
-                        process.kill()
-                        try: # Try communicate again after kill
-                            stdout_final, stderr_final = process.communicate(timeout=5)
+                        logger.warning(f"run_airodump_scan.sh process (PID: {process.pid}) did not terminate gracefully after 20s. Killing.")
+                        process.kill() # SIGKILL to sudo
+                        try:
+                            stdout_final, stderr_final = process.communicate(timeout=10)
                         except Exception as e_comm_kill:
                              logger.error(f"Error communicating after kill for PID {process.pid}: {e_comm_kill}")
-                        logger.info(f"Airodump-ng process (PID: {process.pid}) killed.")
+                        logger.info(f"run_airodump_scan.sh process (PID: {process.pid}) killed.")
                     except Exception as e_term:
-                        logger.error(f"Error during airodump-ng termination/communication: {e_term}", exc_info=True)
-                elif process: # Process already exited before terminate was called
-                    logger.info(f"Airodump-ng process (PID: {process.pid}) already exited with code: {process.returncode}")
-                    # Try to get any remaining output
+                        logger.error(f"Error during run_airodump_scan.sh termination/communication: {e_term}", exc_info=True)
+                elif process: # Process already exited
+                    logger.info(f"run_airodump_scan.sh process (PID: {process.pid}) already exited with code: {process.returncode}")
                     try:
-                        stdout_final, stderr_final = process.communicate(timeout=5) # Short timeout
+                        stdout_final, stderr_final = process.communicate(timeout=5)
                     except Exception as e_comm_exited:
-                        logger.error(f"Error communicating with already exited airodump-ng process {process.pid}: {e_comm_exited}")
+                        logger.error(f"Error communicating with already exited run_airodump_scan.sh process {process.pid}: {e_comm_exited}")
 
-                if stdout_final: logger.debug(f"Final airodump-ng stdout: {stdout_final}")
-                if stderr_final: logger.debug(f"Final airodump-ng stderr: {stderr_final}")
+                if stdout_final: logger.debug(f"Final run_airodump_scan.sh stdout: {stdout_final}")
+                if stderr_final: logger.debug(f"Final run_airodump_scan.sh stderr: {stderr_final}")
 
             csv_filepath = None
             # Airodump-ng typically names the CSV file like 'scan_out-01.csv'

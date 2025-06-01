@@ -18,3 +18,13 @@ DEFAULT_WORDLIST = "/path/to/non_existent_wordlist.txt"
 # Handshake capture settings
 HANDSHAKE_CAPTURE_DIR = "captures"
 HANDSHAKE_CAPTURE_PREFIX = "handshake"
+
+# --- Privilege Separation Configuration ---
+# Command to use for privilege escalation (e.g., "sudo" or "su -c" for Termux tsu)
+SUDO_COMMAND = "sudo"
+# Directory where wrapper scripts for privileged operations are located.
+# Default is for standard Linux. Termux might need e.g., "../scripts/" relative to backend,
+# or an absolute path like "/data/data/com.termux/files/home/intruder/scripts/"
+WRAPPER_SCRIPT_DIR = "/opt/intruder/scripts/"
+# Note: For Termux, if WRAPPER_SCRIPT_DIR is relative, ensure it's relative to where the server is run from.
+# Example Termux value: WRAPPER_SCRIPT_DIR = "scripts/" # If scripts are in project_root/scripts
