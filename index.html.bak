@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>iNTRUDER v1.5 -</title>
+  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <header>
+    iNTRUDER v1.5 - WiFi Pentesting Dashboard
+  </header>
+  <main class="container">
+
+    <!-- Start Monitor Panel -->
+    <section class="panel">
+      <h2>Start Monitor Mode</h2>
+      <input type="text" id="monitor-iface" placeholder="Interface (e.g., wlan0, default from config)" />
+      <button id="start-mon-btn">Start Monitor</button>
+      <div id="start-mon-output" class="output"></div>
+    </section>
+
+    <!-- Handshake Capture Panel -->
+    <section class="panel">
+      <h2>Capture Handshake</h2>
+      <input type="text" id="capture-iface" placeholder="Monitor Interface (e.g., wlan0mon)" />
+      <input type="text" id="capture-ssid" placeholder="Target SSID (optional if BSSID given)" />
+      <input type="text" id="capture-bssid" placeholder="Target BSSID (optional if SSID given)" />
+      <input type="text" id="capture-channel" placeholder="Channel (optional)" />
+      <button id="scan-handshake-btn">Capture Handshake</button>
+      <div id="scan-handshake-output" class="output"></div>
+    </section>
+
+    <!-- Scan Networks Panel -->
+    <section class="panel">
+      <h2>Scan Networks</h2>
+      <input type="text" id="scan-iface" placeholder="Monitor Interface (e.g., wlan0mon)" />
+      <input type="text" id="scan-duration" placeholder="Duration (seconds, e.g., 30)" />
+      <button id="log-sniffer-btn">Start Scan</button>
+      <div id="log-sniffer-output" class="output"></div>
+    </section>
+
+    <!-- Deauthentication Panel -->
+    <section class="panel">
+      <h2>Deauth Attack</h2>
+      <input type="text" id="deauth-iface" placeholder="Monitor Interface (e.g., wlan0mon)" />
+      <input type="text" id="deauth-bssid" placeholder="Target BSSID (Required)" />
+      <input type="text" id="deauth-client" placeholder="Client MAC (Default: Broadcast)" />
+      <input type="text" id="deauth-count" placeholder="Packet Count (e.g., 10)" />
+      <button id="deauth-btn">Execute Deauth</button>
+      <div id="deauth-output" class="output"></div>
+    </section>
+
+    <!-- Crack WPA Panel -->
+    <section class="panel">
+      <h2>Crack Handshake</h2>
+      <input type="text" id="crack-handshake" placeholder="Path to .cap file" />
+      <input type="text" id="crack-wordlist" placeholder="Path to wordlist file" />
+      <button id="crack-btn">Crack</button>
+      <div id="crack-output" class="output"></div>
+    </section>
+
+  </main>
+  <script src="script.js"></script>
+</body>
+</html>

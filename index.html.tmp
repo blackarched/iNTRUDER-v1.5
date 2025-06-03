@@ -211,11 +211,7 @@
                 <i class="fa fa-file-alt fa-4x" aria-hidden="true"></i>
               </div>
               <ul>
-              <div class="feature-module" augmented-ui="tl-clip br-clip exe" style="margin-top: 15px; padding:10px;">
-                <h3 class="feature-title" augmented-ui="tl-clip br-clip exe">Generate Reports</h3>
-                <button id="generate-reports-btn" class="button" augmented-ui="tr-clip tl-clip bl-clip br-clip exe">Generate Reports</button>
-                <div id="reports-output" class="output-display" augmented-ui="tr-clip tl-clip bl-clip br-clip exe" style="height: 80px; overflow-y: auto; margin-top:10px;">Report generation status and links...</div>
-              </div>
+                <li>Generate JSON/Markdown reports via /api/reporting/generate</li>
                 <li>View centralized event logs</li>
               <!-- Additional Features Added Below -->
               <!-- Rogue AP Controls -->
@@ -346,3 +342,5 @@
     <script></script>
   </body>
 </html>
+
+// AWK_HTML_WARNING: Target <li> for report UI replacement not found or not in divreports.
