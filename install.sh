@@ -43,7 +43,7 @@ fi
 
 source venv/bin/activate
 pip install --upgrade pip
-pip install flask flask_cors flask-socketio mitmproxy
+pip install flask flask_cors flask-socketio
 
 # Step 6: Backend confirmation
 if [ ! -f backend/server.py ]; then

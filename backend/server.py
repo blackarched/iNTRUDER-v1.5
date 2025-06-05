@@ -55,16 +55,7 @@ logger = logging.getLogger(__name__)
 # --- End Root Logger Configuration ---
 
 from .plugins.rogue_ap import RogueAP
-# Conditional import for MitmProxy
-mitm_plugin_available = False
-try:
-    from .plugins.mitm import MitmProxy # noqa: F401 (Silence flake8 if MitmProxy isn't used when unavailable)
-    mitm_plugin_available = True
-    logger.info("MitmProxy plugin loaded successfully.")
-except ModuleNotFoundError:
-    logger.warning("Module 'mitmproxy' not found. The MITM plugin and its API endpoints will be unavailable.")
-except ImportError as e:
-    logger.error(f"Failed to import MitmProxy plugin due to an ImportError: {e}. The MITM plugin will be unavailable.")
+# MITM Plugin has been removed.
 
 from .plugins.wps_attack import WPSAttack
 from .plugins.opsec_utils import MACChanger
@@ -135,33 +126,7 @@ def api_stop_rogue_ap():
     ap.cleanup() # This logs "rogue_ap_stopped"
     return jsonify({'status': 'stopped'}), 200
 
-if mitm_plugin_available:
-    @app.route('/api/mitm/start', methods=['POST'])
-    def api_start_mitm():
-        data = request.json
-        port = data.get('port', 8081)
-        mode = data.get('mode', 'transparent')
-
-        # MitmProxy.__init__ and MitmProxy.start() log "mitm_proxy_init" and "mitm_proxy_started"
-        log_event("mitm_proxy_start_requested", {"port": port, "mode": mode})
-        # The MitmProxy class is only available if mitm_plugin_available is True
-        mitm_instance = MitmProxy(listen_port=port, mode=mode)
-        mitm_instance.start() # This logs "mitm_proxy_started"
-        _services['mitm'] = mitm_instance
-        return jsonify({'status': 'running', 'port': port}), 200
-
-    @app.route('/api/mitm/stop', methods=['POST'])
-    def api_stop_mitm():
-        mitm = _services.pop('mitm', None)
-        if not mitm:
-            return jsonify({"status": "error", 'message': 'MITM not running'}), 400 # Consistent error
-
-        # MitmProxy.shutdown() logs "mitm_proxy_stopping" and "mitm_proxy_stopped" (or errors)
-        log_event("mitm_proxy_stop_requested", {"port": getattr(mitm.master.options, 'listen_port', 'unknown') if mitm.master else 'unknown'})
-        mitm.shutdown() # This logs its shutdown sequence
-        return jsonify({'status': 'stopped'}), 200
-else:
-    logger.info("MITM plugin not available, so /api/mitm/start and /api/mitm/stop routes are not registered.")
+# MITM Plugin and its routes have been removed.
 
 
 # Endpoint: Start WPS Attack
