@@ -46,14 +46,14 @@ pip install --upgrade pip
 pip install flask flask_cors
 
 # Step 6: Backend confirmation
-if [ ! -f server.js ]; then
-  echo -e "${RED}Error: server.js not found. Aborting.${NC}"
+if [ ! -f backend/server.py ]; then
+  echo -e "${RED}Error: backend/server.py not found. Aborting.${NC}"
   exit 1
 fi
 
 # Step 7: Start backend server
 echo -e "${GREEN}Backend ready. Starting Flask server...${NC}"
-gnome-terminal -- bash -c "source venv/bin/activate && python3 server.js; exec bash" &
+gnome-terminal -- bash -c "source venv/bin/activate && python3 -m backend.server; exec bash" &
 
 # Step 8: Launch dashboard
 echo -e "${YELLOW}Launching dashboard in your default browser...${NC}"
