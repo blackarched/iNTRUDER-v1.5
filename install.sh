@@ -52,8 +52,18 @@ if [ ! -f backend/server.py ]; then
 fi
 
 # Step 7: Start backend server
-echo -e "${GREEN}Backend ready. Starting Flask server...${NC}"
-gnome-terminal -- bash -c "source venv/bin/activate && python3 -m backend.server; exec bash" &
+echo -e "${GREEN}Backend ready. Starting Flask server in the background...${NC}"
+echo -e "${YELLOW}Server output will be logged to backend_server.log${NC}"
+# Ensure venv is activated for this command if not globally for the script part
+source venv/bin/activate
+nohup python3 -m backend.server > backend_server.log 2>&1 &
+echo -e "${YELLOW}Giving the server a moment to start...${NC}"
+sleep 5
+echo -e "${YELLOW}The backend server has been started in the background.${NC}"
+echo -e "${YELLOW}Check ${CYAN}backend_server.log${YELLOW} for detailed output or errors.${NC}"
+echo -e "${YELLOW}You can check if the server is running with: ${CYAN}ps aux | grep 'python3 -m backend.server'${NC}"
+# Deactivate venv if only activated for this step - though source venv/bin/activate earlier should persist for script
+# deactivate # Optional: if you want to explicitly deactivate
 
 # Step 8: Launch dashboard
 echo -e "${YELLOW}Launching dashboard in your default browser...${NC}"
