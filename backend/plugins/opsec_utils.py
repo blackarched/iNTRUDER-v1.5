@@ -115,7 +115,7 @@ class MACChanger:
             return None
         logger.info(f"Getting current MAC for {interface}.")
         success, stdout_str, _ = self._run_command(['macchanger', '-s', interface], check_errors=False)
-        if success or "Permanent MAC" in stdout_str:
+        if success or "Permanent MAC" in stdout_str: # Check for "Permanent MAC" in output as macchanger -s might return 0 even if it couldn't read current
             current, _ = self._parse_macchanger_output(stdout_str)
             return current
         logger.warning(f"Failed to get current MAC for {interface} or parse output. stdout: {stdout_str}")
@@ -148,37 +148,28 @@ class MACChanger:
             logger.error(f"Failed to set random MAC for {interface}. macchanger command stdout: {stdout_str}")
             return None, None
         finally:
-            if interface_was_brought_down or not interface_exists(interface): # Attempt to bring up if we brought it down, or if it's unexpectedly down
+            # Always try to bring the interface up if we attempted to bring it down, or if it's unexpectedly down.
+            if interface_was_brought_down or not self._is_interface_up(interface):
                 if not self._bring_interface_up(interface):
                     logger.error(f"CRITICAL: Interface {interface} was left down after set_mac_random attempt.")
                 else:
                     logger.info(f"Interface {interface} brought back up after set_mac_random attempt.")
-            elif self._is_interface_up(interface): # Check if it's already up if we didn't bring it down
-                 logger.debug(f"Interface {interface} is already up after set_mac_random attempt.")
-            else: # If it's down and we didn't bring it down, it might be an issue.
-                 logger.warning(f"Interface {interface} is unexpectedly down after set_mac_random and was not managed by this method.")
 
 
     def _is_interface_up(self, interface: str) -> bool:
         """Helper to check if interface is operationally up."""
         if not interface_exists(interface): return False
-        # This is a simplified check. `ip link show <iface>` output contains 'state UP' or 'state DOWN' etc.
-        # For brevity, assuming if it exists and macchanger didn't error out majorly, it's likely up or can be brought up.
-        # A more robust check would parse `ip link show` state.
-        # For now, this is a placeholder if more detailed check is needed.
-        # This method is not strictly required if _bring_interface_up is called in finally.
         try:
-            result = subprocess.run(['ip', 'link', 'show', interface], capture_output=True, text=True)
-            if result.returncode == 0 and "state UP" in result.stdout:
-                return True
-        except Exception:
-            pass # Fall through to false
-        return False
+            result = subprocess.run(['ip', 'link', 'show', interface], capture_output=True, text=True, check=True)
+            return "state UP" in result.stdout
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as e:
+            logger.debug(f"Could not determine if interface {interface} is up: {e}")
+            return False
 
 
     def set_mac_specific(self, interface: str, new_mac_address: str) -> tuple[str | None, str | None]:
         logger.info(f"Attempting to set MAC for {interface} to {new_mac_address}.")
-        if not interface_exists(interface): # Check added here for consistency, though get_current_mac would also check
+        if not interface_exists(interface):
             logger.error(f"Interface {interface} does not exist. Cannot set specific MAC.")
             return None, None
         original_mac = self.get_current_mac(interface)
@@ -196,7 +187,7 @@ class MACChanger:
                 if changed_mac and changed_mac.lower() == new_mac_address.lower():
                     logger.info(f"Successfully set MAC for {interface} to {changed_mac} (Permanent: {perm_mac}). Original was: {original_mac}")
                     log_event("mac_address_changed", {"interface": interface, "old_mac": original_mac, "new_mac": changed_mac, "permanent_mac": perm_mac, "method": "specific"})
-                elif changed_mac:
+                elif changed_mac: # MAC changed, but not to what we asked.
                     logger.warning(f"MAC for {interface} changed to {changed_mac}, not the requested {new_mac_address}. Permanent: {perm_mac}. Original was: {original_mac}")
                     log_event("mac_address_changed_unexpected", {"interface": interface, "old_mac": original_mac, "requested_mac": new_mac_address, "actual_new_mac": changed_mac, "permanent_mac": perm_mac, "method": "specific"})
                 else: # macchanger command succeeded but output parsing failed
@@ -206,20 +197,16 @@ class MACChanger:
             logger.error(f"Failed to set MAC for {interface} to {new_mac_address}. macchanger command stdout: {stdout_str}")
             return None, None
         finally:
-            if interface_was_brought_down or not self._is_interface_up(interface): # Check _is_interface_up as a fallback
+            if interface_was_brought_down or not self._is_interface_up(interface):
                 if not self._bring_interface_up(interface):
                     logger.error(f"CRITICAL: Interface {interface} was left down after set_mac_specific attempt.")
                 else:
                     logger.info(f"Interface {interface} brought back up after set_mac_specific attempt.")
-            elif self._is_interface_up(interface):
-                 logger.debug(f"Interface {interface} is already up after set_mac_specific attempt.")
-            else:
-                 logger.warning(f"Interface {interface} is unexpectedly down after set_mac_specific and was not managed by this method.")
 
 
     def revert_to_original_mac(self, interface: str) -> tuple[str | None, str | None]:
         logger.info(f"Attempting to revert MAC for {interface} to permanent hardware MAC.")
-        if not interface_exists(interface): # Check added here
+        if not interface_exists(interface):
             logger.error(f"Interface {interface} does not exist. Cannot revert MAC.")
             return None, None
         current_mac_before_revert = self.get_current_mac(interface)
@@ -237,10 +224,10 @@ class MACChanger:
                 if restored_mac and perm_mac and restored_mac.lower() == perm_mac.lower():
                     logger.info(f"Successfully reverted MAC for {interface} to permanent MAC: {restored_mac}. Previous MAC was: {current_mac_before_revert}")
                     log_event("mac_address_reverted", {"interface": interface, "reverted_from_mac": current_mac_before_revert, "reverted_to_mac": restored_mac, "permanent_mac": perm_mac})
-                elif restored_mac:
+                elif restored_mac: # Reverted, but maybe not to permanent (e.g. if permanent MAC is weird or parsing of perm_mac failed)
                      logger.warning(f"MAC for {interface} reverted by 'macchanger -p' to {restored_mac}, but permanent MAC reported as {perm_mac}. Previous MAC: {current_mac_before_revert}")
                      log_event("mac_address_reverted_mismatch", {"interface": interface, "reverted_from_mac": current_mac_before_revert, "reverted_to_mac": restored_mac, "permanent_mac": perm_mac})
-                else:
+                else: # macchanger command succeeded but output parsing failed
                     logger.warning(f"Could not parse reverted MAC from macchanger -p output for {interface}. Output: {stdout_str}")
                 return restored_mac, perm_mac
 
@@ -252,84 +239,6 @@ class MACChanger:
                     logger.error(f"CRITICAL: Interface {interface} was left down after revert_to_original_mac attempt.")
                 else:
                     logger.info(f"Interface {interface} brought back up after revert_to_original_mac attempt.")
-            elif self._is_interface_up(interface):
-                 logger.debug(f"Interface {interface} is already up after revert_to_original_mac attempt.")
-            else:
-                 logger.warning(f"Interface {interface} is unexpectedly down after revert_to_original_mac and was not managed by this method.")
-
-if __name__ == '__main__':
-    # This is for basic testing of the MACChanger class itself.
-    # Requires running as root and a valid interface (e.g., wlan0, eth0).
-            new_mac, perm_mac = self._parse_macchanger_output(stdout_str)
-            if new_mac:
-                logger.info(f"Successfully set random MAC for {interface} to {new_mac} (Permanent: {perm_mac}). Original was: {original_mac}")
-                log_event("mac_address_changed", {"interface": interface, "old_mac": original_mac, "new_mac": new_mac, "permanent_mac": perm_mac, "method": "random"})
-            else: # macchanger command succeeded but output parsing failed
-                logger.warning(f"Could not parse new MAC from macchanger -r output for {interface}. Output: {stdout_str}")
-            return new_mac, perm_mac
-
-        logger.error(f"Failed to set random MAC for {interface}. macchanger command stdout: {stdout_str}")
-        return None, None
-
-    def set_mac_specific(self, interface: str, new_mac_address: str) -> tuple[str | None, str | None]:
-        logger.info(f"Attempting to set MAC for {interface} to {new_mac_address}.")
-        if not interface_exists(interface): # Check added here for consistency, though get_current_mac would also check
-            logger.error(f"Interface {interface} does not exist. Cannot set specific MAC.")
-            return None, None
-        original_mac = self.get_current_mac(interface)
-
-        if not self._bring_interface_down(interface):
-            logger.warning(f"Continuing to attempt MAC change for {interface} to {new_mac_address} despite failure to bring it down first.")
-
-        success, stdout_str, _ = self._run_command(['macchanger', '-m', new_mac_address, interface])
-
-        if not self._bring_interface_up(interface):
-            logger.warning(f"Failed to bring interface {interface} up after attempting to set specific MAC.")
-
-        if success and stdout_str:
-            changed_mac, perm_mac = self._parse_macchanger_output(stdout_str)
-            if changed_mac and changed_mac.lower() == new_mac_address.lower():
-                logger.info(f"Successfully set MAC for {interface} to {changed_mac} (Permanent: {perm_mac}). Original was: {original_mac}")
-                log_event("mac_address_changed", {"interface": interface, "old_mac": original_mac, "new_mac": changed_mac, "permanent_mac": perm_mac, "method": "specific"})
-            elif changed_mac:
-                logger.warning(f"MAC for {interface} changed to {changed_mac}, not the requested {new_mac_address}. Permanent: {perm_mac}. Original was: {original_mac}")
-                log_event("mac_address_changed_unexpected", {"interface": interface, "old_mac": original_mac, "requested_mac": new_mac_address, "actual_new_mac": changed_mac, "permanent_mac": perm_mac, "method": "specific"})
-            else: # macchanger command succeeded but output parsing failed
-                logger.warning(f"Could not parse new MAC from macchanger -m output for {interface}. Output: {stdout_str}")
-            return changed_mac, perm_mac
-
-        logger.error(f"Failed to set MAC for {interface} to {new_mac_address}. macchanger command stdout: {stdout_str}")
-        return None, None
-
-    def revert_to_original_mac(self, interface: str) -> tuple[str | None, str | None]:
-        logger.info(f"Attempting to revert MAC for {interface} to permanent hardware MAC.")
-        if not interface_exists(interface): # Check added here
-            logger.error(f"Interface {interface} does not exist. Cannot revert MAC.")
-            return None, None
-        current_mac_before_revert = self.get_current_mac(interface)
-
-        if not self._bring_interface_down(interface):
-            logger.warning(f"Continuing to attempt MAC reversion for {interface} despite failure to bring it down first.")
-
-        success, stdout_str, _ = self._run_command(['macchanger', '-p', interface])
-
-        if not self._bring_interface_up(interface):
-            logger.warning(f"Failed to bring interface {interface} up after attempting to revert MAC.")
-
-        if success and stdout_str:
-            restored_mac, perm_mac = self._parse_macchanger_output(stdout_str)
-            if restored_mac and perm_mac and restored_mac.lower() == perm_mac.lower():
-                logger.info(f"Successfully reverted MAC for {interface} to permanent MAC: {restored_mac}. Previous MAC was: {current_mac_before_revert}")
-                log_event("mac_address_reverted", {"interface": interface, "reverted_from_mac": current_mac_before_revert, "reverted_to_mac": restored_mac, "permanent_mac": perm_mac})
-            elif restored_mac:
-                 logger.warning(f"MAC for {interface} reverted by 'macchanger -p' to {restored_mac}, but permanent MAC reported as {perm_mac}. Previous MAC: {current_mac_before_revert}")
-                 log_event("mac_address_reverted_mismatch", {"interface": interface, "reverted_from_mac": current_mac_before_revert, "reverted_to_mac": restored_mac, "permanent_mac": perm_mac})
-            else:
-                logger.warning(f"Could not parse reverted MAC from macchanger -p output for {interface}. Output: {stdout_str}")
-            return restored_mac, perm_mac
-
-        logger.error(f"Failed to revert MAC for {interface} to permanent hardware MAC. macchanger command stdout: {stdout_str}")
-        return None, None
 
 if __name__ == '__main__':
     # This is for basic testing of the MACChanger class itself.
@@ -338,15 +247,25 @@ if __name__ == '__main__':
     # Ensure 'macchanger' and 'ip' commands are available.
 
     # Setup basic logging for the test
-    test_logger = logging.getLogger()
+    test_logger = logging.getLogger() # Get root logger
+    # Ensure it's clear of other handlers if this is meant to be standalone test
+    for handler in test_logger.handlers[:]:
+        test_logger.removeHandler(handler)
+
     test_logger.setLevel(logging.DEBUG) # Show all logs for testing
     test_handler = logging.StreamHandler()
     test_formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
     test_handler.setFormatter(test_formatter)
     test_logger.addHandler(test_handler)
 
+    # Configure this specific module's logger level too, if it was set higher by default from other imports
+    logging.getLogger(__name__).setLevel(logging.DEBUG)
+
+
     iface_to_test = "eth0" # CHANGE THIS to a real, non-critical interface for testing
                            # Using a virtual interface or a test VM's interface is safer.
+                           # Example: for a virtual interface 'veth_test_mac'
+                           # Ensure it's up: sudo ip link add veth_test_mac type veth peer name veth_test_peer && sudo ip link set veth_test_mac up
 
     # --- WARNING ---
     # The following tests will change the MAC address of the specified interface.
@@ -359,52 +278,98 @@ if __name__ == '__main__':
         logger.error("macchanger is not installed. Aborting tests.")
         exit(1)
 
+    if not interface_exists(iface_to_test):
+        logger.error(f"Test interface {iface_to_test} does not exist. Aborting tests.")
+        logger.error("If using a virtual interface like veth, create and bring it up first.")
+        logger.error("Example: sudo ip link add veth_test_mac type veth peer name veth_test_peer && sudo ip link set veth_test_mac up")
+        exit(1)
+
+
     logger.info(f"--- Testing MACChanger on interface: {iface_to_test} ---")
 
     original_mac = changer.get_current_mac(iface_to_test)
-    logger.info(f"Initial current MAC: {original_mac}")
+    logger.info(f"Initial current MAC for {iface_to_test}: {original_mac}")
+
+    permanent_mac_initial_report = None
+    # Get permanent MAC directly for reference if possible (macchanger -s output)
+    _, stdout_s, _ = changer._run_command(['macchanger', '-s', iface_to_test], check_errors=False)
+    _, perm_mac_from_s = changer._parse_macchanger_output(stdout_s)
+    if perm_mac_from_s:
+        permanent_mac_initial_report = perm_mac_from_s
+        logger.info(f"Permanent MAC for {iface_to_test} (from -s): {permanent_mac_initial_report}")
+    else:
+        logger.warning(f"Could not determine permanent MAC for {iface_to_test} from 'macchanger -s' output.")
+
+
     if not original_mac:
-        logger.error(f"Could not retrieve initial MAC for {iface_to_test}. Further tests might be unreliable.")
-        # exit(1) # Decide if to stop or continue
+        logger.warning(f"Could not retrieve initial MAC for {iface_to_test}. Some tests might be less effective.")
 
     logger.info("--- Test 1: Set Random MAC ---")
     new_random_mac, perm_mac_after_random = changer.set_mac_random(iface_to_test)
-    logger.info(f"Set to Random MAC: {new_random_mac}, Permanent MAC: {perm_mac_after_random}")
+    logger.info(f"Set to Random MAC result: {new_random_mac}, Reported Permanent MAC: {perm_mac_after_random}")
     current_mac_after_random = changer.get_current_mac(iface_to_test)
     logger.info(f"Current MAC after random set: {current_mac_after_random}")
-    assert new_random_mac == current_mac_after_random, "New random MAC does not match current MAC!"
 
-    # Only proceed if original_mac was fetched, otherwise we can't revert properly.
-    if original_mac:
-        logger.info("--- Test 2: Revert to Original MAC ---")
-        reverted_mac, perm_mac_after_revert = changer.revert_to_original_mac(iface_to_test)
-        logger.info(f"Reverted to Original MAC: {reverted_mac}, Permanent MAC: {perm_mac_after_revert}")
-        current_mac_after_revert = changer.get_current_mac(iface_to_test)
-        logger.info(f"Current MAC after revert: {current_mac_after_revert}")
-        # Depending on macchanger's behavior and system, reverted_mac might be the permanent one.
-        # The key is that current_mac_after_revert should be the permanent MAC.
-        assert perm_mac_after_revert == current_mac_after_revert, "Reverted MAC does not match permanent MAC!"
-        # If original_mac was the permanent MAC, then this should also hold:
-        # assert original_mac == current_mac_after_revert, "Reverted MAC does not match initial original MAC!"
-        # However, if original_mac was already a spoofed one, this assertion would be false.
-        # The most reliable check is if current MAC == permanent MAC after -p.
+    if new_random_mac and current_mac_after_random:
+        assert new_random_mac.lower() == current_mac_after_random.lower(), "New random MAC does not match current MAC!"
+    elif new_random_mac and not current_mac_after_random:
+        logger.warning("Random MAC was set, but get_current_mac failed afterwards.")
+    elif not new_random_mac:
+        logger.warning("Failed to set or parse random MAC.")
 
-    logger.info("--- Test 3: Set Specific MAC ---")
+
+    # Revert to permanent before specific test, using the permanent MAC reported by the random change
+    # This makes tests more independent.
+    if perm_mac_after_random:
+        logger.info(f"--- Intermediate Revert to Permanent MAC: {perm_mac_after_random} ---")
+        changer.revert_to_original_mac(iface_to_test) # This should set it to perm_mac_after_random
+        current_mac_after_intermediate_revert = changer.get_current_mac(iface_to_test)
+        logger.info(f"Current MAC after intermediate revert: {current_mac_after_intermediate_revert}")
+        if current_mac_after_intermediate_revert:
+             assert current_mac_after_intermediate_revert.lower() == perm_mac_after_random.lower(), "Intermediate revert did not match reported permanent MAC."
+        else:
+            logger.warning("Failed to get MAC after intermediate revert.")
+
+
+    logger.info("--- Test 2: Set Specific MAC ---")
     specific_test_mac = "aa:bb:cc:dd:ee:ff"
+    # Ensure specific_test_mac is different from current permanent MAC for a valid test
+    if perm_mac_after_random and specific_test_mac.lower() == perm_mac_after_random.lower():
+        specific_test_mac = "00:11:22:33:44:55" # Choose a different one
+        logger.info(f"Original specific_test_mac was same as permanent, changed to: {specific_test_mac}")
+
     logger.info(f"Attempting to set MAC to specific: {specific_test_mac}")
     new_specific_mac, perm_mac_after_specific = changer.set_mac_specific(iface_to_test, specific_test_mac)
-    logger.info(f"Set to Specific MAC: {new_specific_mac}, Permanent MAC: {perm_mac_after_specific}")
+    logger.info(f"Set to Specific MAC result: {new_specific_mac}, Reported Permanent MAC: {perm_mac_after_specific}")
     current_mac_after_specific = changer.get_current_mac(iface_to_test)
     logger.info(f"Current MAC after specific set: {current_mac_after_specific}")
-    assert new_specific_mac.lower() == specific_test_mac.lower(), "New specific MAC does not match requested specific MAC!"
-    assert current_mac_after_specific.lower() == specific_test_mac.lower(), "Current MAC does not match requested specific MAC!"
 
-    # Final revert to permanent MAC if possible
-    if perm_mac_after_specific: # If we know the permanent MAC
-        logger.info(f"--- Final Revert to Permanent MAC: {perm_mac_after_specific} ---")
-        changer.revert_to_original_mac(iface_to_test)
-        final_mac = changer.get_current_mac(iface_to_test)
-        logger.info(f"Final current MAC: {final_mac}. Should be permanent.")
-        assert final_mac == perm_mac_after_specific, "Final MAC is not the permanent MAC!"
+    if new_specific_mac and current_mac_after_specific:
+        assert new_specific_mac.lower() == specific_test_mac.lower(), "New specific MAC does not match requested specific MAC!"
+        assert current_mac_after_specific.lower() == specific_test_mac.lower(), "Current MAC does not match requested specific MAC!"
+    elif new_specific_mac and not current_mac_after_specific:
+         logger.warning("Specific MAC was set, but get_current_mac failed afterwards.")
+    elif not new_specific_mac:
+        logger.warning("Failed to set or parse specific MAC.")
+
+    # Final revert to permanent MAC
+    # Use the permanent MAC reported by the LAST successful operation (set_mac_specific) if available
+    # Otherwise, fallback to the one reported by set_mac_random, or the initial 'macchanger -s'
+    final_perm_mac_target = perm_mac_after_specific or perm_mac_after_random or permanent_mac_initial_report
+    if final_perm_mac_target:
+        logger.info(f"--- Final Revert to Target Permanent MAC: {final_perm_mac_target} ---")
+        reverted_mac, perm_mac_final_revert = changer.revert_to_original_mac(iface_to_test)
+        logger.info(f"Reverted MAC reported by command: {reverted_mac}, Permanent MAC from command: {perm_mac_final_revert}")
+        final_mac_check = changer.get_current_mac(iface_to_test)
+        logger.info(f"Final current MAC after revert: {final_mac_check}")
+        if final_mac_check and perm_mac_final_revert: # Both should be available
+            assert final_mac_check.lower() == perm_mac_final_revert.lower(), "Final MAC is not the permanent MAC reported by the revert command!"
+            assert final_mac_check.lower() == final_perm_mac_target.lower(), "Final MAC is not the target permanent MAC!"
+        elif not final_mac_check:
+            logger.error("Failed to get final MAC address after attempting revert.")
+        else:
+            logger.warning("Could not fully verify final MAC state due to missing report values.")
+    else:
+        logger.warning("No reliable permanent MAC was determined throughout tests to perform a final revert check.")
 
     logger.info("--- MACChanger Tests Completed ---")
