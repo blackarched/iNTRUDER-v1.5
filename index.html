@@ -1,67 +1,627 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>iNTRUDER v1.5 -</title>
-  <link rel="stylesheet" href="style.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500&display=swap" rel="stylesheet">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>iNTRUDER v1.5 - Cyberpunk WiFi Pentesting Suite</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Leaflet removed (no map) -->
+    <!-- Socket.IO (for real-time analytics) -->
+    <script src="/socket.io/socket.io.js"></script>
+    <!-- Animate.css for HUD element (assumes animate.css is in same directory) -->
+    <link rel="stylesheet" href="animate.css" />
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="cyber_hud.css">
 </head>
-<body>
-  <header>
-    iNTRUDER v1.5 - WiFi Pentesting Dashboard
-  </header>
-  <main class="container">
+<body class="min-h-screen">
+  <!-- Matrix rain background -->
+  <div class="matrix-rain" id="matrixRain"></div>
 
-    <!-- Start Monitor Panel -->
-    <section class="panel">
-      <h2>Start Monitor Mode</h2>
-      <input type="text" id="monitor-iface" placeholder="Interface (e.g., wlan0, default from config)" />
-      <button id="start-mon-btn">Start Monitor</button>
-      <div id="start-mon-output" class="output"></div>
-    </section>
+  <!-- HUD animated element inserted behind everything -->
+  <div id="hudContainer">
+    <!-- Begin animate2.html content -->
+    <div class="message">
+      &check; Made by <a href="https://codepen.io/pieter-biesemans/" target="_blank" title="&#128565; check out my other work"
+        >Pieter Biesemans</a
+      >
+    </div>
 
-    <!-- Handshake Capture Panel -->
-    <section class="panel">
-      <h2>Capture Handshake</h2>
-      <input type="text" id="capture-iface" placeholder="Monitor Interface (e.g., wlan0mon)" />
-      <input type="text" id="capture-ssid" placeholder="Target SSID (optional if BSSID given)" />
-      <input type="text" id="capture-bssid" placeholder="Target BSSID (optional if SSID given)" />
-      <input type="text" id="capture-channel" placeholder="Channel (optional)" />
-      <button id="scan-handshake-btn">Capture Handshake</button>
-      <div id="scan-handshake-output" class="output"></div>
-    </section>
+    <div class="target top left"></div>
+    <div class="target top right"></div>
+    <div class="target bottom left"></div>
+    <div class="target bottom right"></div>
 
-    <!-- Scan Networks Panel -->
-    <section class="panel">
-      <h2>Scan Networks</h2>
-      <input type="text" id="scan-iface" placeholder="Monitor Interface (e.g., wlan0mon)" />
-      <input type="text" id="scan-duration" placeholder="Duration (seconds, e.g., 30)" />
-      <button id="log-sniffer-btn">Start Scan</button>
-      <div id="log-sniffer-output" class="output"></div>
-    </section>
+    <div class="hud">
+      <div class="orange">
+        <div class="notches">
+          <div class="notch notch1"></div>
+          <div class="notch notch2"></div>
+          <div class="notch notch3"></div>
+          <div class="notch notch4"></div>
+          <div class="notch notch5"></div>
+          <div class="notch notch6"></div>
+          <div class="notch notch7"></div>
+          <div class="notch notch8"></div>
+          <div class="notch notch9"></div>
+          <div class="notch notch10"></div>
+          <div class="notch notch11"></div>
+          <div class="notch notch12"></div>
+        </div>
+        <div class="circle outer1"></div>
+        <div class="circle outer2"></div>
+        <div class="circle outer3"></div>
+        <div class="circle inner1"></div>
+        <div class="circle inner2"></div>
+        <div class="topnotches">
+          <div class="notch notch1"></div>
+          <div class="notch notch2"></div>
+          <div class="notch notch3"></div>
+          <div class="notch notch4"></div>
+          <div class="notch notch5"></div>
+          <div class="notch notch6"></div>
+          <div class="notch notch7"></div>
+          <div class="notch notch8"></div>
+          <div class="notch notch9"></div>
+          <div class="notch notch10"></div>
+          <div class="notch notch11"></div>
+          <div class="notch notch12"></div>
+        </div>
+        <div class="bottomnotches">
+          <div class="notch notch1"></div>
+          <div class="notch notch2"></div>
+          <div class="notch notch3"></div>
+          <div class="notch notch4"></div>
+          <div class="notch notch5"></div>
+          <div class="notch notch6"></div>
+          <div class="notch notch7"></div>
+          <div class="notch notch8"></div>
+          <div class="notch notch9"></div>
+          <div class="notch notch10"></div>
+          <div class="notch notch11"></div>
+          <div class="notch notch12"></div>
+        </div>
+        <div class="circle inner3"></div>
+        <div class="center">
+          <div class="top left"></div>
+          <div class="top right"></div>
+          <div class="bottom left"></div>
+          <div class="bottom right"></div>
+        </div>
+      </div>
+      <div class="blue">
+        <div class="circle inner1"></div>
+        <div class="notches">
+          <div class="notch notch1"></div>
+          <div class="notch notch2"></div>
+          <div class="notch notch3"></div>
+          <div class="notch notch4"></div>
+          <div class="notch notch5"></div>
+          <div class="notch notch6"></div>
+          <div class="notch notch7"></div>
+          <div class="notch notch8"></div>
+          <div class="notch notch9"></div>
+          <div class="notch notch10"></div>
+          <div class="notch notch11"></div>
+          <div class="notch notch12"></div>
+        </div>
+        <div class="circle inner2"></div>
+      </div>
+      <div class="callout left">
+        <div class="title">AH-64E</div>
+        <div class="body">N606SP</div>
+      </div>
+      <div class="callout right">
+        <div class="title">1239 m</div>
+        <div class="body">275 km/h</div>
+      </div>
+    </div>
+    <!-- End animate2.html content -->
+  </div>
 
-    <!-- Deauthentication Panel -->
-    <section class="panel">
-      <h2>Deauth Attack</h2>
-      <input type="text" id="deauth-iface" placeholder="Monitor Interface (e.g., wlan0mon)" />
-      <input type="text" id="deauth-bssid" placeholder="Target BSSID (Required)" />
-      <input type="text" id="deauth-client" placeholder="Client MAC (Default: Broadcast)" />
-      <input type="text" id="deauth-count" placeholder="Packet Count (e.g., 10)" />
-      <button id="deauth-btn">Execute Deauth</button>
-      <div id="deauth-output" class="output"></div>
-    </section>
+  <div class="flex h-screen overflow-hidden">
+    <!-- Sidebar -->
+    <div class="glass-effect w-20 md:w-64 flex-shrink-0 flex flex-col transition-all duration-300 z-10">
+      <div class="p-4 flex items-center justify-center md:justify-start">
+        <div
+          class="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center glow-effect"
+        >
+          <i class="fas fa-wifi text-black"></i>
+        </div>
+        <span class="ml-3 text-xl font-futuristic hidden md:block gradient-text">iNTRUDER</span>
+      </div>
 
-    <!-- Crack WPA Panel -->
-    <section class="panel">
-      <h2>Crack Handshake</h2>
-      <input type="text" id="crack-handshake" placeholder="Path to .cap file" />
-      <input type="text" id="crack-wordlist" placeholder="Path to wordlist file" />
-      <button id="crack-btn">Crack</button>
-      <div id="crack-output" class="output"></div>
-    </section>
+      <nav class="flex-1 mt-8 px-2 space-y-2">
+        <a
+          href="#"
+          class="flex items-center p-3 rounded-lg text-white bg-green-900/50 hover:bg-green-800/50 transition-colors"
+        >
+          <i class="fas fa-home w-6 text-center"></i>
+          <span class="ml-3 hidden md:block">Dashboard</span>
+        </a>
+        <a
+          href="#"
+          class="flex items-center p-3 rounded-lg text-gray-300 hover:bg-slate-800/50 transition-colors sidebar-nav-link"
+          data-action="monitor" data-command="monitor wlan0mon"
+        >
+          <i class="fas fa-toggle-on w-6 text-center"></i>
+          <span class="ml-3 hidden md:block">Monitor Mode</span>
+        </a>
+        <a
+          href="#"
+          class="flex items-center p-3 rounded-lg text-gray-300 hover:bg-slate-800/50 transition-colors sidebar-nav-link"
+          data-action="scan" data-command="scan 30s"
+        >
+          <i class="fas fa-search w-6 text-center"></i>
+          <span class="ml-3 hidden md:block">Network Scan</span>
+        </a>
+        <a
+          href="#"
+          class="flex items-center p-3 rounded-lg text-gray-300 hover:bg-slate-800/50 transition-colors sidebar-nav-link"
+          data-action="handshake" data-command="handshake YOUR_BSSID_HERE"
+        >
+          <i class="fas fa-handshake w-6 text-center"></i>
+          <span class="ml-3 hidden md:block">Handshake Capture</span>
+        </a>
+        <a
+          href="#"
+          class="flex items-center p-3 rounded-lg text-gray-300 hover:bg-slate-800/50 transition-colors sidebar-nav-link"
+          data-action="deauth" data-command="deauth YOUR_BSSID_HERE"
+        >
+          <i class="fas fa-bolt w-6 text-center"></i>
+          <span class="ml-3 hidden md:block">Deauth Attack</span>
+        </a>
+        <a
+          href="#"
+          class="flex items-center p-3 rounded-lg text-gray-300 hover:bg-slate-800/50 transition-colors sidebar-nav-link"
+          data-action="crack" data-command="crack handshake.cap wordlist.txt"
+        >
+          <i class="fas fa-key w-6 text-center"></i>
+          <span class="ml-3 hidden md:block">Crack Handshake</span>
+        </a>
+        <a
+          href="#"
+          class="flex items-center p-3 rounded-lg text-gray-300 hover:bg-slate-800/50 transition-colors"
+        >
+          <i class="fas fa-file-alt w-6 text-center"></i>
+          <span class="ml-3 hidden md:block">Reports</span>
+        </a>
+      </nav>
 
-  </main>
-  <script src="script.js"></script>
+      <div class="p-4 hidden md:block">
+        <div class="bg-slate-800/50 rounded-lg p-4 border border-green-500/20">
+          <div class="flex items-center">
+            <div class="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center">
+              <i class="fas fa-lock text-black"></i>
+            </div>
+            <div class="ml-3">
+              <div class="text-sm font-medium text-white">Root Privileges</div>
+              <div class="text-xs text-green-400">Active</div>
+            </div>
+          </div>
+          <button
+            class="mt-3 w-full bg-gradient-to-r from-green-500 to-blue-500 text-black py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+          >
+            New Session
+          </button>
+        </div>
+      </div>
+
+      <div class="p-4 flex items-center">
+        <div class="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center">
+          <span class="text-black text-sm font-medium">AD</span>
+        </div>
+        <div class="ml-3 hidden md:block">
+          <div class="text-sm font-medium text-white">Admin</div>
+          <div class="text-xs text-green-400">root@intruder</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="flex-1 flex flex-col overflow-hidden">
+      <!-- Top Navigation -->
+      <header class="glass-effect border-b border-green-900/50 flex items-center justify-between p-4">
+        <div class="flex items-center">
+          <button class="md:hidden text-gray-400 hover:text-white mr-2">
+            <i class="fas fa-bars"></i>
+          </button>
+          <h1 class="text-xl font-futuristic gradient-text">iNTRUDER v1.5 - WiFi Pentest Dashboard</h1>
+        </div>
+
+        <div class="flex items-center space-x-4">
+          <div class="relative hidden md:block">
+            <input
+              type="text"
+              placeholder="Search scans..."
+              class="bg-slate-800/50 border border-green-500/20 rounded-lg pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 w-64"
+            />
+            <i class="fas fa-search absolute left-3 top-3 text-green-400"></i>
+          </div>
+
+          <button class="text-gray-400 hover:text-white relative">
+            <i class="fas fa-bell"></i>
+            <span class="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+          </button>
+
+          <button class="text-gray-400 hover:text-white">
+            <i class="fas fa-random"></i>
+          </button>
+
+          <div class="hidden md:flex items-center space-x-2" id="top-nav-interface">
+            <span class="text-sm font-medium text-green-400">Interface: <span class="text-white" id="top-nav-interface-value">wlan0mon</span></span>
+            <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+          </div>
+        </div>
+      </header>
+
+      <!-- Dashboard Content -->
+      <main class="flex-1 overflow-y-auto p-4 md:p-6 bg-gradient-to-br from-slate-900 to-slate-800">
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+          <div class="glass-effect rounded-xl p-6 hover:glow-effect transition-all border border-green-500/20">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-gray-400 text-sm">NETWORKS FOUND</p>
+                <h3 class="text-2xl font-bold mt-1 text-green-400">12</h3>
+                <p class="text-blue-400 text-sm mt-2 flex items-center">
+                  <i class="fas fa-arrow-up mr-1"></i> 5 new
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">
+                <i class="fas fa-network-wired text-green-400"></i>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass-effect rounded-xl p-6 hover:glow-effect transition-all border border-blue-500/20">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-gray-400 text-sm">HANDSHAKES CAPTURED</p>
+                <h3 class="text-2xl font-bold mt-1 text-blue-400">3</h3>
+                <p class="text-green-400 text-sm mt-2 flex items-center">
+                  <i class="fas fa-lock-open mr-1"></i> Last: 2m ago
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center">
+                <i class="fas fa-handshake text-blue-400"></i>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass-effect rounded-xl p-6 hover:glow-effect transition-all border border-purple-500/20">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-gray-400 text-sm">DEAUTH ATTACKS</p>
+                <h3 class="text-2xl font-bold mt-1 text-purple-400">5</h3>
+                <p class="text-yellow-400 text-sm mt-2 flex items-center">
+                  <i class="fas fa-bolt mr-1"></i> Ongoing: 2
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center">
+                <i class="fas fa-bomb text-purple-400"></i>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass-effect rounded-xl p-6 hover:glow-effect transition-all border border-red-500/20">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-gray-400 text-sm">CRACKING SESSIONS</p>
+                <h3 class="text-2xl font-bold mt-1 text-red-400">2</h3>
+                <p class="text-green-400 text-sm mt-2 flex items-center">
+                  <i class="fas fa-key mr-1"></i> Pending: 1
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
+                <i class="fas fa-key text-red-400"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Main Content Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- Left Column -->
+          <div class="lg:col-span-2 space-y-6">
+            <!-- Real-Time Network Analytics Chart -->
+            <div class="glass-effect rounded-xl p-6 border border-green-500/20 h-96">
+              <div class="flex justify-between items-center mb-6">
+                <h2 class="text-lg font-semibold">REAL-TIME NETWORK ANALYTICS</h2>
+                <button
+                  class="text-xs bg-green-500/20 text-green-400 px-3 py-1 rounded-lg hover:bg-green-500/30 flex items-center"
+                >
+                  <i class="fas fa-sync-alt mr-1"></i> Refresh
+                </button>
+              </div>
+              <canvas id="networkAnalyticsChart"></canvas>
+            </div>
+
+            <!-- Pentest Control Panel -->
+            <div class="glass-effect rounded-xl p-6 border border-purple-500/20">
+              <div class="flex justify-between items-center mb-6">
+                <h2 class="text-lg font-semibold">PENTEST CONTROL PANEL</h2>
+                <button
+                  class="text-xs bg-purple-500/20 text-purple-400 px-3 py-1 rounded-lg hover:bg-purple-500/30 flex items-center"
+                >
+                  <i class="fas fa-plus mr-1"></i> Start New
+                </button>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div
+                  class="hacker-card bg-slate-800/50 rounded-lg p-4 border border-green-500/20 hover:border-green-500/50 transition-all cursor-pointer"
+                  data-action="monitor" data-command="monitor wlan0mon"
+                >
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                      <div
+                        class="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center mr-3"
+                      >
+                        <i class="fas fa-toggle-on text-green-400"></i>
+                      </div>
+                      <div>
+                        <h4 class="font-medium">MONITOR MODE</h4>
+                        <p class="text-xs text-gray-400 mt-1">Interface: wlan0</p>
+                      </div>
+                    </div>
+                    <div class="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>
+                  </div>
+                  <div class="mt-3 flex justify-between items-center">
+                    <div class="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded">
+                      Active
+                    </div>
+                    <button
+                      class="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded hover:bg-red-500/30"
+                    >
+                      <i class="fas fa-stop"></i>
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  class="hacker-card bg-slate-800/50 rounded-lg p-4 border border-blue-500/20 hover:border-blue-500/50 transition-all cursor-pointer"
+                  data-action="scan" data-command="scan"
+                >
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                      <div
+                        class="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center mr-3"
+                      >
+                        <i class="fas fa-search text-blue-400"></i>
+                      </div>
+                      <div>
+                        <h4 class="font-medium">NETWORK SCAN</h4>
+                        <p class="text-xs text-gray-400 mt-1">Last: 30s ago</p>
+                      </div>
+                    </div>
+                    <div class="w-3 h-3 rounded-full bg-blue-500 animate-pulse"></div>
+                  </div>
+                  <div class="mt-3 flex justify-between items-center">
+                    <div class="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded">
+                      Running
+                    </div>
+                    <button
+                      class="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded hover:bg-red-500/30"
+                    >
+                      <i class="fas fa-stop"></i>
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  class="hacker-card bg-slate-800/50 rounded-lg p-4 border border-yellow-500/20 hover:border-yellow-500/50 transition-all cursor-pointer"
+                  data-action="handshake" data-command="handshake YOUR_BSSID_HERE"
+                >
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                      <div
+                        class="w-10 h-10 rounded-full bg-yellow-500/20 flex items-center justify-center mr-3"
+                      >
+                        <i class="fas fa-handshake text-yellow-400"></i>
+                      </div>
+                      <div>
+                        <h4 class="font-medium">HANDSHAKE CAPTURE</h4>
+                        <p class="text-xs text-gray-400 mt-1">SSID: TargetNet</p>
+                      </div>
+                    </div>
+                    <div class="w-3 h-3 rounded-full bg-yellow-500 animate-pulse"></div>
+                  </div>
+                  <div class="mt-3 flex justify-between items-center">
+                    <div class="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded">
+                      Running
+                    </div>
+                    <button
+                      class="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded hover:bg-red-500/30"
+                    >
+                      <i class="fas fa-stop"></i>
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  class="hacker-card bg-slate-800/50 rounded-lg p-4 border border-red-500/20 hover:border-red-500/50 transition-all cursor-pointer"
+                  data-action="deauth" data-command="deauth YOUR_BSSID_HERE"
+                >
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                      <div
+                        class="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center mr-3"
+                      >
+                        <i class="fas fa-bomb text-red-400"></i>
+                      </div>
+                      <div>
+                        <h4 class="font-medium">DEAUTH ATTACK</h4>
+                        <p class="text-xs text-gray-400 mt-1">Target: AA:BB:CC:DD:EE:FF</p>
+                      </div>
+                    </div>
+                    <div class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div>
+                  </div>
+                  <div class="mt-3 flex justify-between items-center">
+                    <div class="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded">
+                      Running
+                    </div>
+                    <button
+                      class="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded hover:bg-red-500/30"
+                    >
+                      <i class="fas fa-stop"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Column -->
+          <div class="space-y-6">
+            <!-- Terminal Console -->
+            <div class="terminal rounded-xl overflow-hidden">
+              <div class="terminal-header flex items-center justify-between p-3">
+                <div class="flex items-center">
+                  <div class="w-3 h-3 rounded-full bg-red-500 mr-2"></div>
+                  <div class="w-3 h-3 rounded-full bg-yellow-500 mr-2"></div>
+                  <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                  <span class="ml-3 text-sm font-medium">root@intruder:~</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                  <button class="text-xs text-gray-400 hover:text-white">
+                    <i class="fas fa-expand"></i>
+                  </button>
+                  <button class="text-xs text-gray-400 hover:text-white">
+                    <i class="fas fa-times"></i>
+                  </button>
+                </div>
+              </div>
+              <div
+                class="terminal-body p-4 h-96 overflow-y-auto console-font text-green-400 text-sm"
+                id="terminalOutput"
+              >
+                <div class="mb-2">iNTRUDER v1.5 - Cyberpunk WiFi Pentesting Suite</div>
+                <div class="mb-2">Initializing modules...</div>
+                <div class="mb-2 text-white">[✓] Monitor mode activated on wlan0mon</div>
+                <div class="mb-2 text-white">[✓] SocketIO connection established</div>
+                <div class="mb-2">----------------------------------------</div>
+                <div class="mb-2">Active modules:</div>
+                <div class="mb-2 ml-4">- Monitor Mode</div>
+                <div class="mb-2 ml-4">- Adaptive Network Scan</div>
+                <div class="mb-2 ml-4">- Handshake Capture</div>
+                <div class="mb-2 ml-4">- Deauth Attack</div>
+                <div class="mb-2">----------------------------------------</div>
+                <div class="mb-2">Last handshake: 2 minutes ago</div>
+                <div class="mb-4">Current tasks queue: <span class="text-yellow-400">2 pending</span></div>
+                <div class="flex items-center"> <!-- This div is the prompt container -->
+                  <span class="mr-2">root@intruder:~#</span>
+                  <input
+                    type="text"
+                    class="terminal-input flex-1"
+                    placeholder="Enter command..."
+                    id="terminalInput"
+                    autocomplete="off"
+                  />
+                  <span class="blinking-cursor">|</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Handshake Over Time Chart -->
+            <div class="glass-effect rounded-xl p-6 border border-blue-500/20">
+              <div class="flex justify-between items-center mb-6">
+                <h2 class="text-lg font-semibold">HANDSHAKES & DEAUTH PACKETS</h2>
+                <div class="flex items-center space-x-2">
+                  <button
+                    class="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded hover:bg-blue-500/30"
+                  >
+                    <i class="fas fa-chart-bar"></i>
+                  </button>
+                  <button
+                    class="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded hover:bg-blue-500/30"
+                  >
+                    <i class="fas fa-sliders-h"></i>
+                  </button>
+                </div>
+              </div>
+
+              <canvas id="handshakeChart" height="200"></canvas>
+
+              <div class="mt-4 grid grid-cols-3 gap-2 text-center">
+                <div class="p-2 bg-slate-800/50 rounded">
+                  <div class="text-xs text-gray-400">TODAY</div>
+                  <div class="text-green-400 font-medium">3</div>
+                </div>
+                <div class="p-2 bg-slate-800/50 rounded">
+                  <div class="text-xs text-gray-400">WEEKLY</div>
+                  <div class="text-blue-400 font-medium">12</div>
+                </div>
+                <div class="p-2 bg-slate-800/50 rounded">
+                  <div class="text-xs text-gray-400">MONTHLY</div>
+                  <div class="text-purple-400 font-medium">45</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- System Status -->
+            <div class="glass-effect rounded-xl p-6 border border-green-500/20">
+              <div class="flex justify-between items-center mb-6">
+                <h2 class="text-lg font-semibold">SYSTEM STATUS</h2>
+                <div class="flex items-center space-x-1">
+                  <span class="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded">STEALTH MODE</span>
+                </div>
+              </div>
+
+              <div class="space-y-4">
+                <div>
+                  <div class="flex justify-between items-center mb-1">
+                    <span class="text-sm">CPU Usage</span>
+                    <span class="text-sm text-green-400">35%</span>
+                  </div>
+                  <div class="w-full bg-slate-800 rounded-full h-2">
+                    <div class="bg-green-500 h-2 rounded-full" style="width: 35%"></div>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="flex justify-between items-center mb-1">
+                    <span class="text-sm">Memory</span>
+                    <span class="text-sm text-blue-400">58%</span>
+                  </div>
+                  <div class="w-full bg-slate-800 rounded-full h-2">
+                    <div class="bg-blue-500 h-2 rounded-full" style="width: 58%"></div>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="flex justify-between items-center mb-1">
+                    <span class="text-sm">wlan0mon TX</span>
+                    <span class="text-sm text-purple-400">1.2MB/s</span>
+                  </div>
+                  <div class="w-full bg-slate-800 rounded-full h-2">
+                    <div class="bg-purple-500 h-2 rounded-full" style="width: 65%"></div>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="flex justify-between items-center mb-1">
+                    <span class="text-sm">wlan0mon RX</span>
+                    <span class="text-sm text-red-400">0.8MB/s</span>
+                  </div>
+                  <div class="w-full bg-slate-800 rounded-full h-2">
+                    <div class="bg-red-500 h-2 rounded-full" style="width: 80%"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+  <script src="cyber_hud.js"></script>
 </body>
 </html>
