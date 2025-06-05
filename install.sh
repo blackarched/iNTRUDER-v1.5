@@ -55,7 +55,7 @@ fi
 echo -e "${GREEN}Backend ready. Starting Flask server in the background...${NC}"
 echo -e "${YELLOW}Server output will be logged to backend_server.log${NC}"
 # source venv/bin/activate # No longer strictly needed here as we use direct path for nohup
-nohup ./venv/bin/python3 -m backend.server > backend_server.log 2>&1 &
+nohup env PYTHONPATH=./venv/lib/python3.13/site-packages ./venv/bin/python3 -m backend.server > backend_server.log 2>&1 &
 echo -e "${YELLOW}Giving the server a moment to start...${NC}"
 sleep 5
 echo -e "${YELLOW}The backend server has been started in the background.${NC}"
