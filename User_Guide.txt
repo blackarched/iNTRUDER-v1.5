@@ -6,8 +6,8 @@ Requirement	Details
 OS	Linux (Ubuntu, Kali Linux preferred)
 Python Version	3.8+
 Backend	Python with Flask (Flask-CORS, Flask-SocketIO, eventlet recommended)
-Core Dependencies	Aircrack-ng suite, macchanger, wireless-tools, iproute2
-UI	Modern Web Browser. CRITICAL: `script.js` needs manual update (see PRODUCTION_CHECKLIST.md).
+Core Dependencies	Aircrack-ng suite, macchanger, wireless-tools, iproute2, net-tools, xdg-utils. (See `install.sh` for a more comprehensive list for automated setup).
+UI	Modern Web Browser. CRITICAL: `cyber_hud.js` needs manual update (see details below and in README.md).
 
 ---
 
@@ -19,20 +19,26 @@ A. Obtain Project Files
 
 B. Install System Dependencies
    Run (or adapt for your package manager):
-   `sudo apt update && sudo apt install -y aircrack-ng macchanger wireless-tools iproute2 hostapd dnsmasq mitmproxy reaver sslstrip`
-   (Note: hostapd, dnsmasq, etc., are for advanced plugins which are currently placeholders.)
+   `sudo apt update && sudo apt install -y aircrack-ng macchanger net-tools python3 python3-pip python3-venv unzip curl xdg-utils hostapd dnsmasq reaver sslstrip`
+   (Note: `hostapd`, `dnsmasq`, etc., are for advanced plugins which might still be under active development or require specific hardware/setup.)
+   Alternatively, run the provided `./install.sh` script (as root) which attempts to automate this and other setup steps.
 
 C. Install Python Dependencies
-   From the project root, ideally using a virtual environment:
-   `pip install Flask Flask-CORS Flask-SocketIO eventlet`
-   (Or `pip install -r requirements.txt` if one is provided with these.)
+   From the project root, ideally using a Python virtual environment:
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+   pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
 
 D. Make Scripts Executable
-   `chmod +x start-mon.sh`
-   (Note: `scan.sh` is legacy; `install.sh` might need review for current setup.)
+   The `install.sh` script handles this. If setting up manually, ensure necessary scripts are executable:
+   `chmod +x install.sh start-mon.sh`
+   (Other scripts like `scan.sh` are legacy or not intended for direct user execution.)
 
 E. Configure iNTRUDER
-   Edit `backend/config.py` to match your environment and preferences (e.g., default interface, log paths, feature flags). See README.md for details on configuration options.
+   Review and edit `backend/config.py` to match your environment and preferences (e.g., default interface, log paths, feature flags). Many settings can also be overridden by environment variables (see comments in `config.py`). See README.md for more details.
 
 ---
 
@@ -54,52 +60,53 @@ iNTRUDER_PROJECT_ROOT/
 │   │   ├── __init__.py
 │   │   ├── opsec_utils.py        # MACChanger utility
 │   │   ├── scanner.py            # AdaptiveScanner (airodump-ng based)
-│   │   ├── rogue_ap.py           # Rogue AP placeholder
-│   │   ├── mitm.py               # MITM proxy placeholder
-│   │   └── wps_attack.py         # WPS attack placeholder
+│   │   ├── rogue_ap.py           # Rogue AP module
+│   │   ├── mitm.py               # MITM proxy placeholder (not fully implemented)
+│   │   └── wps_attack.py         # WPS attack module
 │   └── reporting.py              # ReportGenerator class
-├── frontend/                     # Contains the static web UI files
-│   ├── index.html
-│   ├── style.css
-│   └── script.js                 # CRITICAL: Needs manual update (see PRODUCTION_CHECKLIST.md)
-├── captures/                     # Default directory for handshake captures
-├── reports/                      # Default directory for generated JSON/Markdown reports
-├── intruder.log                  # Default main application log file
-├── session_events.jsonl          # Default structured event log file
-├── start-mon.sh                  # Script to enable monitor mode
-├── scan.sh                       # Legacy scan script (functionality now in AdaptiveScanner)
-├── install.sh                    # Original installer, may need updates for current deps
+├── index.html                    # Main dashboard HTML file (root directory)
+├── cyber_hud.css                 # Main dashboard CSS (root directory)
+├── cyber_hud.js                  # Main dashboard JavaScript (root directory) - CRITICAL: Needs review/sync with backend APIs.
+├── captures/                     # Default directory for handshake captures (see config.py)
+├── reports/                      # Default directory for generated JSON/Markdown reports (see config.py)
+├── logs/                         # Default directory for log files (see config.py)
+│   ├── intruder.log              # Default main application log file
+│   └── session_events.jsonl      # Default structured event log file
+├── start-mon.sh                  # Script to enable monitor mode (reviewed and updated)
+├── install.sh                    # Installer script (reviewed and updated)
+├── requirements.txt              # Python package dependencies
 ├── README.md
 ├── User_Guide.txt
-└── PRODUCTION_CHECKLIST.md       # New: For deployment and operational checks
+└── PRODUCTION_CHECKLIST.md       # For deployment and operational checks (may need updates)
+(Other files like `scan.sh`, `index_old.html`, etc., are legacy or examples and should be reviewed for removal.)
 
 ---
 
 4. Launch the Tool
 
 A. Start the Backend API
-   From the project's root directory (iNTRUDER_PROJECT_ROOT):
-   `sudo python -m backend.server`
-   (Use `sudo` if operations require root privileges, which most WiFi tools do.)
+   From the project's root directory (iNTRUDER_PROJECT_ROOT), after activating the virtual environment:
+   `sudo python3 -m backend.server`
+   (Use `sudo` as most WiFi operations require root privileges.)
 
    You should see log output indicating the server has started, e.g.:
    `* Running on http://0.0.0.0:5000/` (or your configured port)
-   Followed by configuration validation messages.
+   Followed by configuration validation messages from `config.py` if run directly.
 
 B. Open Dashboard
    1. Open a modern web browser.
    2. Navigate to: `http://localhost:5000` (or as configured).
-   3. **IMPORTANT**: The UI may not function correctly unless `frontend/script.js` has been manually updated as per the `PRODUCTION_CHECKLIST.md`.
+   3. **CRITICAL UI ALIGNMENT**: The main dashboard JavaScript (`cyber_hud.js`) interacts with backend API endpoints defined in `backend/server.py`. Significant refactoring of Python modules has occurred. **Crucially, `cyber_hud.js` and the API endpoint implementations in `backend/server.py` must be thoroughly reviewed and synchronized to ensure UI functionality.** Without this, the UI may not function as intended.
 
 ---
 
-5. Functional Panels – What They Do (after `script.js` update)
+5. Functional Panels – What They Do (after `cyber_hud.js` / API alignment)
 
 Panel / Button	Purpose & Interaction
 
 Start Monitor Mode
   Input: Interface (e.g., wlan0, optional)
-  Action: Enables monitor mode on the specified (or default) wireless interface using `start-mon.sh`. Backend verifies.
+  Action: Enables monitor mode on the specified (or default) wireless interface using the updated `start-mon.sh` script or internal Python logic. Backend verifies.
 
 Scan Networks
   Input: Monitor Interface (e.g., wlan0mon), Duration (seconds)
@@ -117,7 +124,7 @@ Crack Handshake
   Input: Path to .cap file (handshake capture), Path to wordlist (optional if default set in config)
   Action: Attempts to crack the handshake using `WifiCracker` (aircrack-ng).
 
-Generate Reports (via API call, UI button may not exist yet)
+Generate Reports (via API call, UI button may not exist yet or be a stub)
   API: `POST /api/reporting/generate`
   Action: Processes `session_events.jsonl` to create JSON and Markdown summary reports in the `reports/` directory.
 
@@ -127,15 +134,16 @@ Generate Reports (via API call, UI button may not exist yet)
 
 Issue	Fix
 
-UI Buttons Not Working / Errors	**CRITICAL**: Manually update `frontend/script.js` as detailed in `PRODUCTION_CHECKLIST.md`. The old script is incompatible with the new backend.
-"ModuleNotFoundError" / "ImportError"	Ensure you are running `sudo python -m backend.server` from the project's root directory.
-Permission Denied / Tool Errors	Most WiFi operations require root. Run the server with `sudo`. Ensure tools like `aircrack-ng`, `macchanger` are installed and executable by root.
+UI Buttons Not Working / Errors	**CRITICAL**: As stated above, `cyber_hud.js` (frontend) and `backend/server.py` (backend API endpoints) must be synchronized. Check browser developer console (F12) for errors.
+"ModuleNotFoundError" / "ImportError"	Ensure you have activated the Python virtual environment (`source venv/bin/activate`) and are running `sudo python3 -m backend.server` from the project's root directory.
+Permission Denied / Tool Errors	Most WiFi operations require root. Run the server with `sudo`. Ensure tools like `aircrack-ng`, `macchanger`, `reaver` are installed and executable by root.
 Monitor Mode Not Activating	Verify your wireless card supports monitor mode. Check output of `start-mon.sh` (logged by server). Manually test `sudo ./start-mon.sh <interface>` if needed. Check interface names with `iwconfig` or `ip link`.
-No Networks/Clients Found	Ensure monitor mode is active on the correct interface. Check antenna and proximity to APs. Review `AdaptiveScanner` logs via main `intruder.log`.
-Log Files	- `intruder.log`: Main application operational log (in project root by default).
-	- `session_events.jsonl`: Structured event log for reporting (in project root by default).
+No Networks/Clients Found	Ensure monitor mode is active on the correct interface. Check antenna and proximity to APs. Review `AdaptiveScanner` logs via the main application log file (default `logs/intruder.log`).
+Log Files	- `logs/intruder.log`: Main application operational log.
+	- `logs/session_events.jsonl`: Structured event log for reporting.
 	- `reports/`: Contains generated JSON/Markdown reports.
 	- `captures/`: Default for handshake .cap files.
+	- `wps_sessions/`: Default for WPS attack session files.
 
 ---
 

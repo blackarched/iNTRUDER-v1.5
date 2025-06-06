@@ -53,15 +53,20 @@ The following tools must be installed and in your system's PATH:
 - `sslstrip` (for use with Rogue AP / MITM)
 
 ### Python Dependencies
-Install using pip from the project root:
+It is highly recommended to use a Python virtual environment.
+Install dependencies using `pip` from the project root:
 ```bash
+python3 -m venv venv
+source venv/bin/activate  # On Windows use `venv\Scripts\activate`
 pip install -r requirements.txt
 ```
-(Note: A `requirements.txt` file should be created containing Flask, Flask-CORS, Flask-SocketIO, and eventlet/gevent if specific async mode is preferred for SocketIO. For this project, the following are key:)
+The `requirements.txt` file includes:
 - `Flask`
 - `Flask-CORS`
 - `Flask-SocketIO`
-- `eventlet` (recommended for SocketIO production use)
+- `eventlet` (for SocketIO production/async mode)
+
+*(Note: Specific versions for the system tools like `aircrack-ng` are not listed, but recent versions are generally expected for compatibility with all features.)*
 
 ---
 
@@ -75,27 +80,31 @@ pip install -r requirements.txt
     Or extract the project archive.
 
 2.  **Install System Tools:**
-    Refer to your distribution's package manager. Example for Debian/Ubuntu:
+    Refer to your distribution's package manager. Example for Debian/Ubuntu (as used in `install.sh`):
     ```bash
     sudo apt update
-    sudo apt install -y aircrack-ng macchanger wireless-tools iproute2 hostapd dnsmasq mitmproxy reaver sslstrip
+    sudo apt install -y aircrack-ng macchanger net-tools python3 python3-pip python3-venv unzip curl xdg-utils hostapd dnsmasq reaver sslstrip
     ```
+    *(Note: Some tools like `hostapd`, `dnsmasq`, `reaver`, `sslstrip` are for advanced/optional plugins which might still be under active development or have specific prerequisites.)*
 
-3.  **Install Python Dependencies:**
-    (Assuming a `requirements.txt` with `Flask`, `Flask-CORS`, `Flask-SocketIO`, `eventlet`)
+3.  **Set up Python Environment and Install Dependencies:**
+    From the project root:
     ```bash
-    pip install Flask Flask-CORS Flask-SocketIO eventlet
+    python3 -m venv venv
+    source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+    pip install --upgrade pip
+    pip install -r requirements.txt
     ```
 
 4.  **Make Scripts Executable (if needed):**
-    Ensure helper shell scripts like `start-mon.sh` are executable:
+    The `install.sh` script attempts to set necessary permissions. However, you can manually ensure core utility scripts are executable:
     ```bash
-    chmod +x start-mon.sh
+    chmod +x install.sh start-mon.sh
+    # Add other scripts if they are intended for direct execution
     ```
-    (Note: `scan.sh` is now legacy, replaced by internal `AdaptiveScanner`.)
 
 5.  **Configure the Application:**
-    Edit `backend/config.py` to suit your environment (see [Configuration](#configuration) section below).
+    Review and edit `backend/config.py` to suit your environment (see [Configuration](#configuration) section below). Pay special attention to default interface names and paths.
 
 6.  **Run the Backend Server:**
     From the project root directory:
@@ -105,35 +114,42 @@ pip install -r requirements.txt
 
 7.  **Access the Dashboard:**
     Open your browser and navigate to `http://localhost:5000` (or the configured port).
-    **IMPORTANT UI NOTE:** The `script.js` for the web interface needs a manual update to align with the latest backend APIs. Refer to `PRODUCTION_CHECKLIST.md` for details.
+    **IMPORTANT UI NOTE:** The main dashboard JavaScript (`cyber_hud.js`) interacts with backend API endpoints defined in `backend/server.py`. Significant refactoring of Python modules has occurred. **Crucially, `cyber_hud.js` and the API endpoint implementations in `backend/server.py` must be thoroughly reviewed and synchronized to ensure UI functionality.** Without this, the UI may not function as intended.
 
 ---
 
 ## Configuration
 
-Key configuration settings are located in `backend/config.py`. Modify these as needed:
+Key configuration settings are located in `backend/config.py`. Modify these as needed.
+Many of these settings can also be overridden using **environment variables**. Refer to the comments within `backend/config.py` for the specific environment variable names (e.g., `INTRUDER_LOG_FILE` for `LOG_FILE`).
 
--   `DEFAULT_IFACE`: Default wireless interface to use (e.g., "wlan0").
--   `MONITOR_IFACE_SUFFIX`: Suffix expected for monitor mode interfaces (e.g., "mon").
--   `LOG_LEVEL`: Logging verbosity (e.g., "INFO", "DEBUG").
--   `LOG_FILE`: Path for the main application log (e.g., "intruder.log").
--   `MAC_CHANGE_ENABLED`: Set to `True` or `False` to enable/disable MAC spoofing globally.
--   `DEFAULT_WORDLIST`: Path to a default wordlist for cracking. Default is `None` (user must provide).
--   `EVENT_LOG_FILE`: Path for the JSONL event log (e.g., "session_events.jsonl").
--   `REPORTS_DIR`: Directory to save generated reports (e.g., "reports/").
--   `AIRCRACK_TIMEOUT`: Default timeout for `aircrack-ng` process in seconds.
--   `START_MON_SH_PATH`: Path to the script used to enable monitor mode.
+Key settings include:
+-   `APP_BASE_DIR`: Automatically determined base directory of the application. Paths below are relative to this.
+-   `DEFAULT_IFACE`: Default wireless interface (e.g., "wlan0"). Env: `INTRUDER_DEFAULT_IFACE`.
+-   `MONITOR_IFACE_SUFFIX`: Suffix for monitor mode interfaces (e.g., "mon"). Env: `INTRUDER_MONITOR_IFACE_SUFFIX`.
+-   `LOG_LEVEL`: Logging verbosity (e.g., "DEBUG", "INFO"). Env: `INTRUDER_LOG_LEVEL`.
+-   `LOG_FILE`: Path for the main application log (e.g., `logs/intruder.log`). Env: `INTRUDER_LOG_FILE`.
+-   `EVENT_LOG_FILE`: Path for the JSONL event log (e.g., `logs/session_events.jsonl`). Env: `INTRUDER_EVENT_LOG_FILE`.
+-   `MAC_CHANGE_ENABLED`: `True` or `False` to enable/disable MAC spoofing. Env: `INTRUDER_MAC_CHANGE_ENABLED`.
+-   `DEFAULT_WORDLIST`: Path to a default wordlist. Env: `INTRUDER_DEFAULT_WORDLIST`. (Ensure this path is valid for cracking features).
+-   `REPORTS_DIR`: Directory for reports (e.g., `reports/`). Env: `INTRUDER_REPORTS_DIR`.
+-   `HANDSHAKE_CAPTURE_DIR`: Directory for handshake captures (e.g., `captures/`). Env: `INTRUDER_HANDSHAKE_CAPTURE_DIR`.
+-   `AIRCRACK_TIMEOUT`: Default timeout for `aircrack-ng` in seconds. Env: `INTRUDER_AIRCRACK_TIMEOUT`.
+-   Paths for optional utility scripts like `SCAN_SH_PATH`, `START_MON_SH_PATH`.
 
 ---
 
 ## Usage Guide
 
-1.  **Prepare Configuration:** Edit `backend/config.py` first.
-2.  **Start Server:** Run `python -m backend.server`.
-3.  **Access UI:** Open `http://localhost:5000`.
-    *   **CRITICAL:** The UI (`script.js`) requires a manual update to match the new backend API. Without this, the UI buttons will not work correctly. See `PRODUCTION_CHECKLIST.md`.
-4.  **Use UI Panels (after `script.js` update):**
-    *   **Start Monitor Mode:** Enter base interface if different from default, then start.
+1.  **Prepare Configuration:** Review and optionally edit `backend/config.py`, or set corresponding environment variables.
+2.  **Start Server:** From the project root, after activating the virtual environment:
+    ```bash
+    python3 -m backend.server
+    ```
+3.  **Access UI:** Open `http://localhost:5000` (or the configured port).
+    *   **CRITICAL UI ALIGNMENT:** The main dashboard JavaScript (`cyber_hud.js`) interacts with backend API endpoints defined in `backend/server.py`. Significant refactoring of Python modules has occurred. **Crucially, `cyber_hud.js` and the API endpoint implementations in `backend/server.py` must be thoroughly reviewed and synchronized to ensure UI functionality.** Without this, the UI may not function as intended.
+4.  **Use UI Panels (after UI/API alignment):**
+    *   **Start Monitor Mode:** Use the terminal or UI controls to activate monitor mode on your wireless interface.
     *   **Scan Networks:** Enter monitor interface and duration, then scan. Results (JSON) appear in output.
     *   **Capture Handshake:** Provide monitor interface and target SSID/BSSID.
     *   **Deauth Attack:** Provide monitor interface, target BSSID, client MAC (optional), and count.
@@ -170,9 +186,9 @@ The backend provides the following primary API endpoints (base URL: `http://loca
 
 ## Troubleshooting
 
--   **UI Buttons Don't Work / Errors:** Ensure `script.js` has been manually updated as per `PRODUCTION_CHECKLIST.md`.
--   **"ModuleNotFoundError" or "ImportError":** Ensure you are running `python -m backend.server` from the project root directory.
--   **Tool Not Found Errors (e.g., `macchanger`, `airodump-ng`):** Verify that all required system tools are installed and in your system's PATH.
+-   **UI Buttons Don't Work / Errors:** As stated in the **CRITICAL UI ALIGNMENT** note, `cyber_hud.js` (frontend) and `backend/server.py` (backend API endpoints) must be synchronized. If they are not, UI interactions will likely fail or not produce expected results. Check the browser's developer console (usually F12) for JavaScript errors and network request failures.
+-   **"ModuleNotFoundError" or "ImportError":** Ensure you have activated the Python virtual environment (`source venv/bin/activate`) and are running `python3 -m backend.server` from the project's root directory.
+-   **Tool Not Found Errors (e.g., `macchanger`, `airodump-ng`, `reaver`):** Verify that all required system tools are installed and their paths are accessible to the user running the script (typically root). Use `which <toolname>` to check.
 -   **Permission Denied:** Most operations require root privileges. Run the server with `sudo`.
 -   **Monitor Mode Issues:** Check `start-mon.sh` script and ensure your wireless card supports monitor mode. Use `iwconfig` or `ip link show` to verify interface states.
 -   **Log Files:** Check `intruder.log` (main app log) and `session_events.jsonl` (structured event log) in the project root for detailed error messages or operational history.

@@ -1,3 +1,9 @@
+# backend/plugins/scanner.py
+"""
+Module: AdaptiveScanner
+Provides functionality to scan for wireless networks and clients using airodump-ng.
+Includes options for MAC address spoofing during scans.
+"""
 import logging
 import subprocess
 import os
@@ -5,258 +11,440 @@ import csv
 import time
 import shutil
 import tempfile
+import sys # For __main__ test block
+from typing import Tuple, List, Dict, Any, Optional
 
-from .opsec_utils import MACChanger
-from .. import config
-from ..core.event_logger import log_event
-from ..core.network_utils import interface_exists, is_monitor_mode # Import for interface checks
+# Attempt to import from local package structure
+try:
+    from .opsec_utils import MACChanger
+    from .. import config
+    from ..core.event_logger import log_event
+    from ..core.network_utils import interface_exists, is_monitor_mode
+except ImportError:
+    # Fallback for direct execution or different environment setups
+    logger_fallback = logging.getLogger(__name__)
+    logger_fallback.warning("Running AdaptiveScanner with fallback imports. Ensure necessary modules are accessible.")
+    # Define dummy/minimal versions for core components if not available
+    # This allows basic testing of the scanner logic if run standalone without full project context.
+    class DummyMACChanger:
+        def __init__(self): self._available = False
+        def _check_macchanger_installed(self): return False
+        def get_current_mac(self, interface: str): return None
+        def set_mac_random(self, interface: str): return None, None
+        def revert_to_original_mac(self, interface: str): return None, None
+    MACChanger = DummyMACChanger # type: ignore
+
+    class DummyConfigScanner:
+        MAC_CHANGE_ENABLED = False
+    config = DummyConfigScanner() # type: ignore
+
+    def log_event(event_type: str, data: Dict[str, Any]) -> None: # type: ignore
+        print(f"DUMMY_LOG_EVENT: {event_type} - {data}")
+
+    def interface_exists(iface_name: str) -> bool: return True # Assume exists for basic test
+    def is_monitor_mode(iface_name: str) -> bool: return True # Assume monitor mode for basic test
+
 
 logger = logging.getLogger(__name__)
 
 class AdaptiveScanner:
+    """
+    Performs wireless network and client scanning using airodump-ng.
+
+    This class handles the setup and execution of airodump-ng, parses its CSV output,
+    and can optionally manage MAC address spoofing for the scanning interface.
+    It requires airodump-ng to be installed and the specified interface to be in monitor mode.
+    """
+
     def __init__(self, interface: str):
-        logger.info(f"Initializing AdaptiveScanner for interface: {interface}")
-        self.interface = interface
-        self.mac_changer = MACChanger()
-        self.mac_spoofing_active_for_scan = False # Track if MAC was changed by this instance for this scan
-        if config.MAC_CHANGE_ENABLED and not self.mac_changer._check_macchanger_installed():
-            logger.warning("MAC_CHANGE_ENABLED is True, but macchanger is not found. MAC spoofing for scanner will be disabled for this session.")
-            self._mac_changer_available = False
+        """
+        Initializes the AdaptiveScanner.
+
+        Args:
+            interface: The name of the wireless interface to use for scanning (e.g., 'wlan0mon').
+                       This interface must be in monitor mode.
+        """
+        logger.info(f"Initializing AdaptiveScanner for interface: '{interface}'")
+        self.interface: str = interface
+        self.mac_changer: MACChanger = MACChanger()
+        self.mac_spoofing_active_for_scan: bool = False # Tracks if MAC was changed by this instance for current scan
+
+        # Check macchanger availability only once during init
+        # Safely check config.MAC_CHANGE_ENABLED
+        self._mac_changer_enabled_in_config: bool = getattr(config, 'MAC_CHANGE_ENABLED', False)
+        self._mac_changer_available: bool = False
+        if self._mac_changer_enabled_in_config:
+            # MACChanger's __init__ already logs if macchanger command is not found.
+            # We rely on its internal state or a method to check availability if needed.
+            # For this structure, let's assume if MACChanger() didn't raise, it's "available"
+            # but its methods might fail if underlying tool is missing.
+            # A more explicit check:
+            if hasattr(self.mac_changer, 'macchanger_path') and self.mac_changer.macchanger_path is not None:
+                 self._mac_changer_available = True
+                 logger.info("MAC spoofing is configured as ENABLED and macchanger utility is available.")
+            else:
+                 logger.warning("MAC_CHANGE_ENABLED is True in config, but macchanger utility seems unavailable. MAC spoofing for scanner will be disabled.")
         else:
-            self._mac_changer_available = True
+            logger.info("MAC spoofing is configured as DISABLED.")
+        log_event("scanner_init", {"interface": self.interface, "mac_changer_enabled_config": self._mac_changer_enabled_in_config, "mac_changer_available_system": self._mac_changer_available})
 
-    def _parse_airodump_csv(self, csv_filepath: str) -> tuple[list, list]:
-        networks = []
-        clients = []
-        parsing_clients = False
 
-        # Standard airodump-ng CSV headers (approximate, may vary slightly by version)
-        # These are simplified for common fields. Add more as needed.
-        ap_headers = ["BSSID", "First time seen", "Last time seen", "channel", "Speed", "Privacy", "Cipher", "Authentication", "Power", "# beacons", "# IV", "LAN IP", "ID-length", "ESSID", "Key"]
-        client_headers = ["Station MAC", "First time seen", "Last time seen", "Power", "# packets", "BSSID", "Probed ESSIDs"]
+    def _parse_airodump_csv(self, csv_filepath: str) -> Tuple[List[Dict[str, str]], List[Dict[str, str]]]:
+        """
+        Parses the CSV output file generated by airodump-ng.
 
+        The CSV file contains two main sections: one for Access Points (APs) and one for Clients.
+        This method separates these sections and parses them into lists of dictionaries.
+
+        Args:
+            csv_filepath: The path to the airodump-ng CSV output file.
+
+        Returns:
+            A tuple containing two lists: (networks, clients).
+            'networks' is a list of dictionaries, each representing an AP.
+            'clients' is a list of dictionaries, each representing a client station.
+            Returns empty lists if parsing fails or the file is not found.
+
+        Note:
+            Airodump-ng CSV format can have slight variations. This parser tries to be robust
+            to common structures. The headers are typically:
+            AP: BSSID, First time seen, Last time seen, channel, Speed, Privacy, Cipher,
+                Authentication, Power, # beacons, # IV, LAN IP, ID-length, ESSID, Key
+            Client: Station MAC, First time seen, Last time seen, Power, # packets, BSSID, Probed ESSIDs
+        """
+        networks: List[Dict[str, str]] = []
+        clients: List[Dict[str, str]] = []
+        parsing_clients_section: bool = False
+
+        # Define expected headers to guide parsing, especially for mapping.
+        # These are common fields; parsing will be somewhat flexible.
+        # Order matters for zip if not all rows have same number of fields as headers.
+        # Airodump CSV is comma-separated, but values can have spaces. strip() is important.
+        ap_headers_expected = ["BSSID", "First time seen", "Last time seen", "channel", "Speed", "Privacy", "Cipher", "Authentication", "Power", "# beacons", "# IV", "LAN IP", "ID-length", "ESSID", "Key"]
+        client_headers_expected = ["Station MAC", "First time seen", "Last time seen", "Power", "# packets", "BSSID", "Probed ESSIDs"]
+
+        current_headers: List[str] = []
+
+        logger.debug(f"Attempting to parse airodump-ng CSV: {csv_filepath}")
         try:
             with open(csv_filepath, 'r', encoding='utf-8', errors='ignore') as f:
                 csv_reader = csv.reader(f)
-                for row in csv_reader:
-                    # Strip whitespace from each cell
-                    row = [cell.strip() for cell in row]
-                    if not row or not row[0]: # Skip empty lines or lines without a BSSID/Station MAC
+                for row_raw in csv_reader:
+                    row = [cell.strip() for cell in row_raw] # Clean each cell
+
+                    if not row or not row[0]: # Skip empty or effectively empty lines
                         continue
 
-                    if row[0].strip() == 'BSSID' and 'Station MAC' in row: # Header for client list
-                        parsing_clients = True
-                        # Update client_headers if needed based on actual file, for robustness
-                        # For now, assume our predefined client_headers are sufficient if this line is matched
-                        logger.debug("Found client section header in CSV.")
+                    # Detect transition from AP list to Client list
+                    # The line "BSSID, Station MAC, ..." indicates the start of the client section header
+                    if row[0] == 'BSSID' and 'Station MAC' in row and 'Probed ESSIDs' in row : # More specific client header check
+                        parsing_clients_section = True
+                        current_headers = client_headers_expected # Use client headers for subsequent rows
+                        logger.debug(f"Switched to parsing CLIENTS section. Headers inferred: {current_headers}")
+                        continue # Skip this header line from data parsing
+
+                    # Detect AP section header (usually the first non-empty line)
+                    if not parsing_clients_section and row[0] == 'BSSID' and 'ESSID' in row:
+                        # This is likely the AP header row. Store it if needed, or just use predefined.
+                        current_headers = ap_headers_expected
+                        logger.debug(f"Identified AP section header. Headers inferred: {current_headers}")
+                        continue # Skip this header line
+
+                    # Data row parsing
+                    if not current_headers: # Should have headers by now
+                        logger.warning(f"Skipping row due to missing header context: {row}")
                         continue
 
-                    if not parsing_clients:
-                        if row[0].strip() == 'BSSID': # AP section header, skip
-                            logger.debug("Found AP section header in CSV.")
-                            continue
-                        # Map row to dict using ap_headers
-                        # Ensure row has enough columns, pad with None if not (though airodump usually fixed width)
-                        network_dict = dict(zip(ap_headers, row[:len(ap_headers)] + [None]*(len(ap_headers)-len(row))))
-                        if len(network_dict.get("BSSID", "")) >= 17 : # Basic validation for a MAC address
-                           networks.append(network_dict)
-                    else:
-                        # Map row to dict using client_headers
-                        client_dict = dict(zip(client_headers, row[:len(client_headers)] + [None]*(len(client_headers)-len(row))))
-                        if len(client_dict.get("Station MAC", "")) >= 17: # Basic validation
-                            clients.append(client_dict)
-            logger.info(f"Parsed {len(networks)} networks and {len(clients)} clients from {csv_filepath}")
+                    # Create dictionary from row data and current headers
+                    # Pad row with None if it's shorter than headers, take subset if longer.
+                    num_headers = len(current_headers)
+                    entry_dict = {current_headers[i]: row[i] if i < len(row) else None for i in range(num_headers)}
+
+                    if not parsing_clients_section:
+                        # Basic validation for an AP entry (BSSID must be present and look like a MAC)
+                        if entry_dict.get("BSSID") and len(str(entry_dict.get("BSSID"))) >= 17:
+                            networks.append(entry_dict)
+                        else:
+                            logger.debug(f"Skipping malformed AP row: {row} based on BSSID field.")
+                    else: # Parsing clients
+                        # Basic validation for a Client entry (Station MAC must be present)
+                        if entry_dict.get("Station MAC") and len(str(entry_dict.get("Station MAC"))) >= 17:
+                            clients.append(entry_dict)
+                        else:
+                            logger.debug(f"Skipping malformed Client row: {row} based on Station MAC field.")
+
+            logger.info(f"Successfully parsed {len(networks)} networks and {len(clients)} clients from '{csv_filepath}'.")
         except FileNotFoundError:
-            logger.error(f"Airodump-ng output CSV file not found at path: {csv_filepath}")
+            logger.error(f"Airodump-ng output CSV file not found at path: '{csv_filepath}'.")
+            log_event("scanner_csv_parse_error", {"file": csv_filepath, "error": "File not found"})
         except UnicodeDecodeError:
-            logger.error(f"Unicode decode error while reading {csv_filepath}. File may contain non-UTF-8 characters.", exc_info=True)
-        except csv.Error as e:
-            logger.error(f"CSV parsing error for file {csv_filepath}: {e}", exc_info=True)
-        except Exception as e:
-            logger.error(f"Unexpected error parsing CSV file {csv_filepath}: {e}", exc_info=True)
+            logger.error(f"Unicode decode error while reading '{csv_filepath}'. File may contain non-UTF-8 characters from SSIDs/Probes.", exc_info=True)
+            log_event("scanner_csv_parse_error", {"file": csv_filepath, "error": "UnicodeDecodeError"})
+        except csv.Error as e_csv:
+            logger.error(f"CSV parsing error for file '{csv_filepath}': {e_csv}", exc_info=True)
+            log_event("scanner_csv_parse_error", {"file": csv_filepath, "error": f"CSV Error: {e_csv}"})
+        except Exception as e_gen_parse:
+            logger.error(f"Unexpected error parsing CSV file '{csv_filepath}': {e_gen_parse}", exc_info=True)
+            log_event("scanner_csv_parse_error", {"file": csv_filepath, "error": f"Unexpected error: {e_gen_parse}", "type": type(e_gen_parse).__name__})
+
         return networks, clients
 
-    def scan(self, duration_seconds: int = 30, scan_intensity: str = 'normal') -> dict:
-        log_event("scan_initiated", {"interface": self.interface, "duration_seconds": duration_seconds, "scan_intensity": scan_intensity})
+    def scan(self, duration_seconds: int = 30, scan_intensity: str = 'normal') -> Dict[str, Any]:
+        """
+        Performs a wireless scan using airodump-ng for a specified duration.
+
+        Optionally changes MAC address before scanning and reverts it after, if configured.
+        Handles temporary file creation for airodump-ng output and cleans them up.
+
+        Args:
+            duration_seconds: The duration in seconds for the scan. Defaults to 30.
+            scan_intensity: Placeholder for future use (e.g., 'light', 'normal', 'deep')
+                            to adjust airodump-ng parameters. Currently unused.
+
+        Returns:
+            A dictionary containing:
+            {
+                "networks": List[Dict[str, str]] (list of found APs),
+                "clients": List[Dict[str, str]] (list of found clients),
+                "error": Optional[str] (error message if scan failed)
+            }
+        """
+        base_event_data = {"interface": self.interface, "duration_seconds": duration_seconds, "scan_intensity": scan_intensity}
+        log_event("scan_initiated", base_event_data)
         logger.info(f"Scan called: duration={duration_seconds}s, intensity='{scan_intensity}', interface='{self.interface}'")
 
         if not interface_exists(self.interface):
-            logger.error(f"Interface {self.interface} does not exist for scan.")
-            # Log event for this specific failure
-            log_event("scan_failed", {"interface": self.interface, "reason": "Interface does not exist", "duration_seconds": duration_seconds})
-            return {"networks": [], "clients": [], "error": f"Interface {self.interface} does not exist."}
+            msg = f"Interface '{self.interface}' does not exist. Scan aborted."
+            logger.error(msg)
+            log_event("scan_failed", {**base_event_data, "reason": msg})
+            return {"networks": [], "clients": [], "error": msg}
 
         if not is_monitor_mode(self.interface):
-            logger.warning(f"Interface {self.interface} is not in monitor mode. Scan may fail or provide limited results.")
-            # Log event for this warning, but proceed with scan as per original instruction
-            log_event("scan_warning_monitor_mode", {"interface": self.interface, "reason": "Not in monitor mode"})
-            # For now, a warning is logged, and scan proceeds.
-            # If strict monitor mode is required, uncomment below:
-            # return {"networks": [], "clients": [], "error": f"Interface {self.interface} not in monitor mode."}
+            msg = f"Interface '{self.interface}' is not in monitor mode. Airodump-ng requires monitor mode. Scan may fail or provide limited results."
+            logger.warning(msg)
+            log_event("scan_warning", {**base_event_data, "reason": msg, "details": "Not in monitor mode"})
+            # Depending on strictness, could return error here. For now, proceed.
 
-        temp_dir = None
-        original_mac = None
-        networks, clients = [], []
-        self.mac_spoofing_active_for_scan = False # Reset for this scan attempt
+        temp_dir: Optional[str] = None
+        original_mac: Optional[str] = None
+        networks: List[Dict[str, str]] = []
+        clients: List[Dict[str, str]] = []
+        self.mac_spoofing_active_for_scan = False # Reset for this specific scan call
+
+        airodump_process: Optional[subprocess.Popen] = None
 
         try:
             temp_dir = tempfile.mkdtemp(prefix="intruder_scan_")
-            output_prefix = os.path.join(temp_dir, "scan_out")
-            logger.debug(f"Scan output files will be prefixed with: {output_prefix}")
+            output_prefix = os.path.join(temp_dir, "scan_output") # airodump-ng adds -01.csv etc.
+            logger.debug(f"Scan output files will be written with prefix: '{output_prefix}' in temp dir '{temp_dir}'")
 
-            if config.MAC_CHANGE_ENABLED and self._mac_changer_available:
-                logger.info(f"MAC change enabled for scan on {self.interface}.")
+            if self._mac_changer_enabled_in_config and self._mac_changer_available:
+                logger.info(f"MAC spoofing enabled for scan on '{self.interface}'.")
                 current_mac_before_change = self.mac_changer.get_current_mac(self.interface)
                 if current_mac_before_change:
-                    original_mac = current_mac_before_change # Store for reversion
-                    logger.info(f"Original MAC for {self.interface}: {original_mac}")
-                    new_mac, _ = self.mac_changer.set_mac_random(self.interface)
+                    original_mac = current_mac_before_change
+                    logger.info(f"Original MAC for '{self.interface}': {original_mac}")
+                    base_event_data["original_mac"] = original_mac
+                    new_mac, _ = self.mac_changer.set_mac_random(self.interface) # MACChanger logs this
                     if new_mac and new_mac.lower() != original_mac.lower():
-                        logger.info(f"Successfully set random MAC for {self.interface} to {new_mac}")
+                        logger.info(f"Scan: Successfully set random MAC for '{self.interface}' to '{new_mac}'.")
                         self.mac_spoofing_active_for_scan = True
-                    elif new_mac:
-                         logger.info(f"MAC for {self.interface} is {new_mac}, which was already set or not changed by random attempt.")
-                         # Not strictly a new spoof for *this scan's* action, but MAC is non-original or as desired.
-                         # We will revert if original_mac is known and different from current.
+                        base_event_data["spoofed_mac"] = new_mac
+                    elif new_mac: # MAC didn't change or was already the new_mac value
+                         logger.info(f"Scan: MAC for '{self.interface}' is '{new_mac}' (may not have changed if already random or due to tool behavior). Will revert if different from original.")
                          if original_mac.lower() != new_mac.lower():
-                            self.mac_spoofing_active_for_scan = True # It is spoofed from original_mac
+                            self.mac_spoofing_active_for_scan = True # It is considered spoofed relative to original
+                            base_event_data["spoofed_mac"] = new_mac
                     else:
-                        logger.warning(f"Failed to set random MAC for {self.interface}. Scanning with current MAC: {original_mac}")
+                        logger.warning(f"Scan: Failed to set random MAC for '{self.interface}'. Scanning with current MAC: {original_mac}.")
+                        # Event for this failure is logged by MACChanger.set_mac_random
                 else:
-                    logger.warning(f"Could not get current MAC for {self.interface}. MAC spoofing for scan will be skipped.")
+                    logger.warning(f"Scan: Could not get current MAC for '{self.interface}'. MAC spoofing for scan will be skipped.")
             else:
-                logger.info(f"MAC change not enabled or macchanger not available for scan on {self.interface}.")
+                logger.info(f"MAC spoofing not enabled or macchanger not available for scan on '{self.interface}'.")
 
-            # --write-interval 1 is frequent, consider 5 for longer scans if disk I/O is an issue.
-            cmd = ["airodump-ng", "--write", output_prefix, "--write-interval", "1", "--output-format", "csv", self.interface]
+            # Airodump-ng command construction
+            # --write-interval 1 is frequent; for longer scans, 3-5s might be better to reduce I/O.
+            cmd = ["airodump-ng", "--write", output_prefix, "--write-interval", "1", "--output-format", "csv,pcap", self.interface]
+            # Added pcap for potential future use (e.g. capturing handshakes during scan)
 
             logger.info(f"Starting airodump-ng scan: {' '.join(cmd)}")
-            process = None
-            try:
-                # Popen does not accept 'check=True' directly, and we manage errors manually.
-                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='ignore')
-                logger.info(f"Airodump-ng process started (PID: {process.pid}). Scanning for {duration_seconds} seconds...")
 
-                # Allow airodump-ng to run for the specified duration
-                try:
-                    # This is a blocking wait, but airodump-ng doesn't self-terminate by duration.
-                    # We rely on the terminate() call after a delay.
-                    # stdout, stderr = process.communicate(timeout=duration_seconds + 10) # Give extra 10s for graceful exit after duration
-                    # The above communicate() would wait for process to end or timeout.
-                    # Instead, we sleep then terminate.
-                    time.sleep(duration_seconds)
-                except KeyboardInterrupt: # Allow manual interruption of scan
-                    logger.info("Scan duration interrupted by user.")
-                    # Fall through to finally block for termination
-                    raise # Re-raise to stop the scan method if desired, or handle differently
+            try:
+                airodump_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='ignore')
+                pid = airodump_process.pid
+                logger.info(f"Airodump-ng process started (PID: {pid}). Scanning for {duration_seconds} seconds...")
+                log_event("scan_process_started", {**base_event_data, "pid": pid, "command": ' '.join(cmd)})
+
+                time.sleep(duration_seconds) # Let airodump-ng run
 
             except FileNotFoundError:
-                logger.error(f"Command 'airodump-ng' not found. Please ensure aircrack-ng suite is installed.", exc_info=True)
-                # No process to terminate or clean up here beyond the main finally block
-                return {"networks": [], "clients": [], "error": "airodump-ng not found"}
+                msg = "'airodump-ng' command not found. Please ensure aircrack-ng suite is installed and in PATH."
+                logger.error(msg, exc_info=True)
+                log_event("scan_failed", {**base_event_data, "reason": msg})
+                return {"networks": [], "clients": [], "error": msg}
             except Exception as e_popen:
-                logger.error(f"Failed to start airodump-ng process: {e_popen}", exc_info=True)
-                return {"networks": [], "clients": [], "error": f"airodump-ng Popen failed: {e_popen}"}
-            finally:
+                msg = f"Failed to start airodump-ng process: {e_popen}"
+                logger.error(msg, exc_info=True)
+                log_event("scan_failed", {**base_event_data, "reason": msg, "exception_type": type(e_popen).__name__})
+                return {"networks": [], "clients": [], "error": msg}
+            finally: # Ensure airodump-ng process is terminated
                 stdout_final, stderr_final = "", ""
-                if process and process.poll() is None:
-                    logger.info(f"Scan duration ended. Terminating airodump-ng process (PID: {process.pid})...")
-                    process.terminate()
+                if airodump_process and airodump_process.poll() is None: # If process exists and is running
+                    logger.info(f"Scan duration of {duration_seconds}s ended. Terminating airodump-ng (PID: {airodump_process.pid})...")
+                    airodump_process.terminate()
                     try:
-                        # Wait for process to terminate and get final outputs
-                        stdout_final, stderr_final = process.communicate(timeout=15) # Increased timeout for communicate after terminate
-                        logger.info(f"Airodump-ng process (PID: {process.pid}) terminated successfully.")
+                        stdout_final, stderr_final = airodump_process.communicate(timeout=15)
+                        logger.info(f"Airodump-ng (PID: {airodump_process.pid}) terminated with code {airodump_process.returncode}.")
                     except subprocess.TimeoutExpired:
-                        logger.warning(f"Airodump-ng process (PID: {process.pid}) did not terminate gracefully after 15s. Killing.")
-                        process.kill()
-                        try: # Try communicate again after kill
-                            stdout_final, stderr_final = process.communicate(timeout=5)
-                        except Exception as e_comm_kill:
-                             logger.error(f"Error communicating after kill for PID {process.pid}: {e_comm_kill}")
-                        logger.info(f"Airodump-ng process (PID: {process.pid}) killed.")
+                        logger.warning(f"Airodump-ng (PID: {airodump_process.pid}) did not terminate gracefully after 15s. Killing.")
+                        airodump_process.kill()
+                        try: stdout_final, stderr_final = airodump_process.communicate(timeout=5)
+                        except Exception: pass # Best effort after kill
+                        logger.info(f"Airodump-ng (PID: {airodump_process.pid}) killed.")
                     except Exception as e_term:
-                        logger.error(f"Error during airodump-ng termination/communication: {e_term}", exc_info=True)
-                elif process: # Process already exited before terminate was called
-                    logger.info(f"Airodump-ng process (PID: {process.pid}) already exited with code: {process.returncode}")
-                    # Try to get any remaining output
-                    try:
-                        stdout_final, stderr_final = process.communicate(timeout=5) # Short timeout
-                    except Exception as e_comm_exited:
-                        logger.error(f"Error communicating with already exited airodump-ng process {process.pid}: {e_comm_exited}")
+                        logger.error(f"Error during airodump-ng termination/communication (PID: {airodump_process.pid if airodump_process else 'N/A'}): {e_term}", exc_info=True)
+                elif airodump_process: # Process existed but already terminated
+                    logger.info(f"Airodump-ng (PID: {airodump_process.pid}) had already exited with code: {airodump_process.returncode}")
+                    try: stdout_final, stderr_final = airodump_process.communicate(timeout=1) # Get any remaining output
+                    except Exception: pass
 
-                if stdout_final: logger.debug(f"Final airodump-ng stdout: {stdout_final}")
-                if stderr_final: logger.debug(f"Final airodump-ng stderr: {stderr_final}")
+                if stdout_final: logger.debug(f"Final airodump-ng stdout: {stdout_final.strip()}")
+                if stderr_final: logger.debug(f"Final airodump-ng stderr: {stderr_final.strip()}") # airodump often uses stderr for status
 
-            csv_filepath = None
-            # Airodump-ng typically names the CSV file like 'scan_out-01.csv'
-            # List directory and find the most recent CSV if multiple, or the first one.
-            # Simple approach: find the first one that matches.
-            if os.path.exists(temp_dir):
-                for f_name in sorted(os.listdir(temp_dir)): # Sort to get predictable file if multiple (-01, -02)
+            # Find the generated CSV file (airodump-ng usually appends '-01.csv', '-02.csv', etc.)
+            csv_filepath_found: Optional[str] = None
+            if temp_dir and os.path.isdir(temp_dir): # Check if temp_dir was created and exists
+                for f_name in sorted(os.listdir(temp_dir)): # Sort to get predictable file (e.g., latest if multiple parts)
                     if f_name.startswith(os.path.basename(output_prefix)) and f_name.endswith(".csv"):
-                        csv_filepath = os.path.join(temp_dir, f_name)
-                        logger.info(f"Found airodump-ng output CSV: {csv_filepath}")
-                        break
+                        csv_filepath_found = os.path.join(temp_dir, f_name)
+                        logger.info(f"Found airodump-ng output CSV: '{csv_filepath_found}'")
+                        break # Use the first one found (often -01.csv)
 
-            if csv_filepath and os.path.exists(csv_filepath):
-                networks, clients = self._parse_airodump_csv(csv_filepath)
+            if csv_filepath_found and os.path.exists(csv_filepath_found):
+                networks, clients = self._parse_airodump_csv(csv_filepath_found)
+                log_event("scan_completed", {**base_event_data, "networks_found": len(networks), "clients_found": len(clients), "csv_file": csv_filepath_found})
             else:
-                logger.error(f"Airodump-ng output CSV file could not be found starting with prefix '{output_prefix}' in {temp_dir}.")
+                msg = f"Airodump-ng output CSV file could not be found. Expected prefix '{output_prefix}' in '{temp_dir}'."
+                logger.error(msg)
+                log_event("scan_failed", {**base_event_data, "reason": msg, "details": "CSV file not found post-scan"})
+                return {"networks": [], "clients": [], "error": msg} # Return error if CSV is missing
 
-        except Exception as e: # Catch-all for unexpected errors during setup or Popen
-            logger.error(f"An error occurred during the scan setup or execution: {e}", exc_info=True)
+        except KeyboardInterrupt: # Handle Ctrl+C during the time.sleep or other operations
+            logger.warning("Scan process interrupted by user (KeyboardInterrupt). Attempting cleanup...")
+            log_event("scan_interrupted", base_event_data)
+            # Cleanup will be handled in the finally block
+            return {"networks": [], "clients": [], "error": "Scan interrupted by user."}
+        except Exception as e_scan: # Catch-all for other unexpected errors during scan logic
+            msg = f"An unexpected error occurred during the scan: {e_scan}"
+            logger.error(msg, exc_info=True)
+            log_event("scan_failed", {**base_event_data, "reason": msg, "exception_type": type(e_scan).__name__})
+            return {"networks": [], "clients": [], "error": msg}
         finally:
-            if config.MAC_CHANGE_ENABLED and self._mac_changer_available and original_mac and self.mac_spoofing_active_for_scan:
-                logger.info(f"Reverting MAC for {self.interface} to {original_mac} after scan.")
+            # --- MAC Reversion and Cleanup ---
+            if self._mac_changer_enabled_in_config and self._mac_changer_available and original_mac and self.mac_spoofing_active_for_scan:
+                logger.info(f"Scan: Attempting to revert MAC for '{self.interface}' to '{original_mac}'.")
+                # MACChanger's revert method logs its own events
                 restored_mac, _ = self.mac_changer.revert_to_original_mac(self.interface)
                 if restored_mac and restored_mac.lower() == original_mac.lower():
-                    logger.info(f"Successfully reverted MAC for {self.interface} to {restored_mac}.")
+                    logger.info(f"Scan: Successfully reverted MAC for '{self.interface}' to '{restored_mac}'.")
                 else:
-                    logger.warning(f"Failed to revert MAC for {self.interface} to {original_mac}. Current MAC: {restored_mac}")
-            elif config.MAC_CHANGE_ENABLED and self._mac_changer_available and original_mac and not self.mac_spoofing_active_for_scan:
-                logger.info(f"MAC was not actively spoofed by this scan instance for {self.interface} (or failed to spoof), no reversion attempted by scanner. Current MAC: {self.mac_changer.get_current_mac(self.interface)}")
+                    logger.warning(f"Scan: Failed to revert MAC for '{self.interface}' to '{original_mac}'. Current MAC might be '{restored_mac if restored_mac else 'unknown'}'.")
+            elif self._mac_changer_enabled_in_config and self._mac_changer_available and original_mac and not self.mac_spoofing_active_for_scan:
+                 # This case means MAC change was enabled, we got original_mac, but spoofing wasn't set (e.g. set_mac_random failed)
+                 logger.info(f"Scan: MAC was not actively spoofed by this scan instance for '{self.interface}' (or spoofing failed). Original MAC was '{original_mac}'. Current MAC: '{self.mac_changer.get_current_mac(self.interface)}'. No scanner-initiated reversion needed.")
 
-
-            if temp_dir and os.path.exists(temp_dir):
+            if temp_dir and os.path.isdir(temp_dir): # Check if temp_dir was created and is a directory
                 try:
                     shutil.rmtree(temp_dir)
-                    logger.info(f"Successfully removed temporary scan directory: {temp_dir}")
+                    logger.info(f"Successfully removed temporary scan directory: '{temp_dir}'")
                 except Exception as e_rm:
-                    logger.error(f"Failed to remove temporary scan directory {temp_dir}: {e_rm}", exc_info=True)
-            self.mac_spoofing_active_for_scan = False # Reset status
+                    logger.error(f"Failed to remove temporary scan directory '{temp_dir}': {e_rm}", exc_info=True)
+                    log_event("scan_cleanup_error", {**base_event_data, "temp_dir": temp_dir, "error": str(e_rm)})
 
-        return {"networks": networks, "clients": clients}
+            self.mac_spoofing_active_for_scan = False # Reset status for next scan call
+
+        logger.info(f"Scan finished. Found {len(networks)} networks and {len(clients)} clients.")
+        return {"networks": networks, "clients": clients, "error": None} # Explicitly None for error on success
 
 
 if __name__ == '__main__':
-    # Basic test setup
-    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    # --- Test Setup ---
+    # This block is for testing the AdaptiveScanner class directly.
+    # It requires:
+    #   1. Root privileges (sudo python -m backend.plugins.scanner)
+    #   2. 'airodump-ng' installed and in PATH.
+    #   3. A wireless interface capable of monitor mode, and already IN monitor mode.
+    #   4. If testing MAC spoofing: 'macchanger' installed and in PATH.
 
-    monitor_interface = "wlan0mon" # <--- !!! SET YOUR MONITOR INTERFACE HERE FOR TESTING !!!
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)s] [%(name)s:%(lineno)d (%(funcName)s)] %(message)s",
+        stream=sys.stdout # Log to console for __main__ tests
+    )
+    # Ensure this module's logger is also at DEBUG if root logger was configured differently.
+    logging.getLogger(__name__).setLevel(logging.DEBUG)
 
-    if not os.path.exists(f"/sys/class/net/{monitor_interface}"):
-        logger.error(f"Test interface {monitor_interface} does not exist. Configure config.py and ensure interface is in monitor mode.")
-    else:
-        logger.info(f"Attempting to use interface: {monitor_interface} for scanner test.")
-        # Temporarily set MAC_CHANGE_ENABLED for this test run if you want to test it
-        # original_mac_setting = config.MAC_CHANGE_ENABLED
-        # config.MAC_CHANGE_ENABLED = True # or False
+    # --- Test Configuration ---
+    # !!! IMPORTANT: SET YOUR ACTUAL MONITOR INTERFACE NAME HERE FOR TESTING !!!
+    # Example: "wlan0mon" if you used `airmon-ng start wlan0`.
+    monitor_interface_for_test = "mon0_interface_placeholder"
+    scan_duration_for_test = 15 # Keep short for testing
 
-        scanner = AdaptiveScanner(interface=monitor_interface)
+    logger.info(f"--- Starting AdaptiveScanner Test Suite ---")
+    logger.info(f"Attempting to use interface: '{monitor_interface_for_test}' for scanner test.")
+    logger.info(f"Scan duration set to: {scan_duration_for_test} seconds.")
 
-        logger.info(f"--- Running scan (MAC Change Currently Configured: {config.MAC_CHANGE_ENABLED}) ---")
-        scan_results = scanner.scan(duration_seconds=20)
-        logger.info(f"Scan results: {len(scan_results.get('networks',[]))} networks, {len(scan_results.get('clients',[]))} clients found.")
+    if "mon0_interface_placeholder" == monitor_interface_for_test or not monitor_interface_for_test:
+        logger.critical("CRITICAL TEST SETUP ERROR: 'monitor_interface_for_test' is still a placeholder or empty.")
+        logger.critical("Please update this variable in the script to your actual wireless interface in monitor mode.")
+        sys.exit(1)
 
-        if scan_results.get('networks'):
-            logger.debug("Found Networks:")
-            for net in scan_results['networks']:
-                logger.debug(f"  ESSID: {net.get('ESSID')}, BSSID: {net.get('BSSID')}, Channel: {net.get('channel')}")
-        if scan_results.get('clients'):
-            logger.debug("Found Clients:")
-            for cli in scan_results['clients']:
-                logger.debug(f"  Station MAC: {cli.get('Station MAC')}, BSSID: {cli.get('BSSID')}")
+    if not interface_exists(monitor_interface_for_test):
+        logger.error(f"Test interface '{monitor_interface_for_test}' does not exist. Aborting test.")
+        logger.error("Please ensure the interface name is correct and the interface is available.")
+        sys.exit(1)
 
-        # config.MAC_CHANGE_ENABLED = original_mac_setting # Restore original setting
+    if not is_monitor_mode(monitor_interface_for_test):
+        logger.warning(f"Test interface '{monitor_interface_for_test}' does not appear to be in monitor mode.")
+        logger.warning("The scan will likely fail or produce no results. Please enable monitor mode first (e.g., using `sudo airmon-ng start <your_wlan_iface>`).")
+        # For a strict test, you might want to sys.exit(1) here.
+        # For now, proceed to let AdaptiveScanner handle it and log its own warnings/errors.
 
-    logger.info("--- AdaptiveScanner Test Completed ---")
+    # --- Test Execution ---
+    # You can temporarily override config.MAC_CHANGE_ENABLED for testing purposes here if needed:
+    # original_mac_setting = getattr(config, 'MAC_CHANGE_ENABLED', False)
+    # config.MAC_CHANGE_ENABLED = True # or False, to test specific scenarios
+    # logger.info(f"Note: MAC_CHANGE_ENABLED temporarily set to {config.MAC_CHANGE_ENABLED} for this test run.")
+
+    scanner_instance = AdaptiveScanner(interface=monitor_interface_for_test)
+
+    logger.info(f"--- Running scan (MAC Change currently configured in config: {getattr(config, 'MAC_CHANGE_ENABLED', False)}, macchanger available: {scanner_instance._mac_changer_available}) ---")
+
+    scan_results_dict = scanner_instance.scan(duration_seconds=scan_duration_for_test)
+
+    logger.info(f"\n--- Scan Test Results ---")
+    if scan_results_dict.get("error"):
+        logger.error(f"Scan reported an error: {scan_results_dict['error']}")
+
+    found_networks = scan_results_dict.get('networks', [])
+    found_clients = scan_results_dict.get('clients', [])
+    logger.info(f"Scan found: {len(found_networks)} networks, {len(found_clients)} clients.")
+
+    if found_networks:
+        logger.info("\n--- Found Networks (Sample) ---")
+        for i, net in enumerate(found_networks[:5]): # Print first 5 networks
+            logger.info(f"  Network {i+1}: ESSID='{net.get('ESSID', 'N/A')}', BSSID='{net.get('BSSID', 'N/A')}', Channel='{net.get('channel', 'N/A')}', Power='{net.get('Power', 'N/A')}', Privacy='{net.get('Privacy', 'N/A')}'")
+
+    if found_clients:
+        logger.info("\n--- Found Clients (Sample) ---")
+        for i, cli in enumerate(found_clients[:5]): # Print first 5 clients
+            logger.info(f"  Client {i+1}: Station MAC='{cli.get('Station MAC', 'N/A')}', Power='{cli.get('Power', 'N/A')}', BSSID='{cli.get('BSSID', 'N/A')}', Probed ESSIDs='{cli.get('Probed ESSIDs', 'N/A')}'")
+
+    # Restore original config setting if it was changed for the test
+    # if hasattr(config, 'MAC_CHANGE_ENABLED') and hasattr(locals(), 'original_mac_setting'):
+    #    config.MAC_CHANGE_ENABLED = original_mac_setting
+    #    logger.info(f"Restored MAC_CHANGE_ENABLED to its original setting: {config.MAC_CHANGE_ENABLED}")
+
+    logger.info("\n--- AdaptiveScanner Test Completed ---")
+    logger.info("Review the logs above for details on MAC spoofing (if enabled/available) and scan results.")

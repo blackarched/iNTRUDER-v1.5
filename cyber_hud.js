@@ -138,12 +138,15 @@ document.addEventListener('DOMContentLoaded', function () {
       analyticsChart.update();
     });
 
-    socket.on('handshake-update', (data) => { // Example: For real-time handshake chart updates
+    socket.on('handshake-update', (data) => {
+        // TODO: Implement handshake-update handler based on actual backend data structure.
+        // This is a stub and needs to be updated to correctly process and display handshake data.
+        // Example: data might contain { timestamp: 'HH:MM', bssid: 'AA:BB:CC:DD:EE:FF', station: '11:22:33:44:55:66', type: 'WPA2 (4-way)' }
+        console.warn("[Socket.IO STUB] 'handshake-update' received. Data:", data);
+        appendToTerminal(`[Socket.IO STUB] Handshake data received (see console for full object): BSSID ${data.bssid || 'N/A'}, Station: ${data.station || 'N/A'}`);
         if (!handshakeChart || !data) return;
-        // Process data and update handshakeChart similarly
-        // e.g., data might contain { timestamp: 'HH:MM', handshakes: 5, deauths: 100 }
-        // This part needs actual data structure from backend to be implemented
-        appendToTerminal(`[Socket.IO] Handshake data received: ${JSON.stringify(data)}`);
+        // Actual chart update logic will depend on how you want to visualize this.
+        // For instance, you might increment a counter for a specific BSSID on the chart.
     });
 
   } catch (e) {
@@ -177,6 +180,9 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   async function startHandshakeCapture(bssid, channel = "", ssid = "") {
+    // TODO: Verify if '/api/log-sniffer' is the correct final endpoint name for handshake capture.
+    // This endpoint name seems like a placeholder or from an earlier iteration.
+    // It should likely be something like '/api/capture-handshake' or similar.
     return await postData("/api/log-sniffer", { bssid, channel, ssid });
   }
 
@@ -237,43 +243,48 @@ document.addEventListener('DOMContentLoaded', function () {
                 case 'monitor':
                     response = await startMonitorMode(args[0]);
                     if (response.status === 'success') {
-                        userMessage = `Monitor mode successfully started on ${response.data && response.data.interface ? response.data.interface : (args[0] || 'default interface')}.`;
-                        document.getElementById('top-nav-interface-value').textContent = response.data && response.data.interface ? response.data.interface : (args[0] || 'wlan0mon');
+                        userMessage = `Monitor mode successfully started on ${response.data?.interface || args[0] || 'default interface'}.`;
+                        // TODO: Make UI updates more robust, e.g., use specific IDs for elements being updated.
+                        document.getElementById('top-nav-interface-value').textContent = response.data?.interface || args[0] || 'wlan0mon';
                         const monitorCard = document.querySelector('.hacker-card[data-action="monitor"]');
                         if (monitorCard) {
-                            monitorCard.querySelector('.text-xs.bg-green-500\\/20').textContent = 'Active';
-                            monitorCard.querySelector('.w-3.h-3.rounded-full').classList.add('bg-green-500', 'animate-pulse');
-                            monitorCard.querySelector('.text-xs.text-gray-400').textContent = `Interface: ${response.data && response.data.interface ? response.data.interface : (args[0] || 'wlan0mon')}`;
+                            // These are stubbed UI elements, actual state change logic will be more complex
+                            // monitorCard.querySelector('.text-xs.bg-green-500\\/20').textContent = 'Active';
+                            // monitorCard.querySelector('.w-3.h-3.rounded-full').classList.add('bg-green-500', 'animate-pulse');
+                            // monitorCard.querySelector('.text-xs.text-gray-400').textContent = `Interface: ${response.data?.interface || args[0] || 'wlan0mon'}`;
+                            appendToTerminal("UI card for Monitor Mode is a STUB and not dynamically updated yet.");
                         }
                     } else {
-                        userMessage = `Error starting monitor mode: ${response.message}`;
+                        userMessage = `Error starting monitor mode: ${response.message || 'Unknown error'}`;
+                        console.error("Monitor mode error response:", response);
                     }
                     appendToTerminal(userMessage);
-                    if (response.status !== 'success') appendToTerminal(`Details: ${JSON.stringify(response, null, 2)}`);
+                    if (response.status !== 'success') appendToTerminal(`Details: <pre>${JSON.stringify(response, null, 2)}</pre>`);
                     break;
                 case 'scan':
                     appendToTerminal("Starting network scan...");
                     response = await startNetworkScan(args[0]);
                     if (response.status === 'success' && response.data) {
                         userMessage = `Network scan completed. Found ${response.data.networks_found_count || 0} networks.`;
-                        const networksFoundCard = document.querySelector('.glass-effect.rounded-xl.p-6:nth-child(1) h3');
-                        if (networksFoundCard) networksFoundCard.textContent = response.data.networks_found_count || '0';
+                        // TODO: Make UI updates more robust
+                        // const networksFoundCard = document.querySelector('.glass-effect.rounded-xl.p-6:nth-child(1) h3');
+                        // if (networksFoundCard) networksFoundCard.textContent = response.data.networks_found_count || '0';
+                        // const scanCard = document.querySelector('.hacker-card[data-action="scan"]');
+                        // if (scanCard) {
+                        //      scanCard.querySelector('.text-xs.bg-blue-500\\/20').textContent = 'Completed';
+                        //      scanCard.querySelector('.text-xs.text-gray-400').textContent = `Last: Just now`;
+                        // }
+                        appendToTerminal("Stats cards and Scan Control Panel card are STUBS and not dynamically updated yet.");
 
-                        const scanCard = document.querySelector('.hacker-card[data-action="scan"]');
-                        if (scanCard) {
-                             scanCard.querySelector('.text-xs.bg-blue-500\\/20').textContent = 'Completed';
-                             scanCard.querySelector('.text-xs.text-gray-400').textContent = `Last: Just now`;
-                        }
-                        // Note: networkAnalyticsChart is primarily updated by Socket.IO 'network-stats' event.
-                        // If scan API provides a list of networks, it could be displayed in terminal or a table, not directly on the time-series chart here.
                         if(response.data.scan_results && Array.isArray(response.data.scan_results)) {
-                            appendToTerminal(`Networks: <pre>${JSON.stringify(response.data.scan_results.slice(0,5), null, 2)}</pre>... (showing first 5)`);
+                            appendToTerminal(`Top Networks: <pre>${JSON.stringify(response.data.scan_results.slice(0,5), null, 2)}</pre>... (showing first 5)`);
                         }
                     } else {
-                        userMessage = `Error during network scan: ${response.message}`;
+                        userMessage = `Error during network scan: ${response.message || 'Unknown error'}`;
+                        console.error("Network scan error response:", response);
                     }
                     appendToTerminal(userMessage);
-                    if (response.status !== 'success') appendToTerminal(`Details: ${JSON.stringify(response, null, 2)}`);
+                    if (response.status !== 'success') appendToTerminal(`Details: <pre>${JSON.stringify(response, null, 2)}</pre>`);
                     break;
                 case 'handshake':
                     if (args.length < 1) {
@@ -283,21 +294,22 @@ document.addEventListener('DOMContentLoaded', function () {
                     appendToTerminal(`Starting handshake capture for BSSID ${args[0]}...`);
                     response = await startHandshakeCapture(args[0], args[1], args[2]);
                     if (response.status === 'success' && response.data) {
-                        userMessage = `Handshake capture started for ${response.data.ssid || args[0]}. Status: ${response.message || 'Ongoing'}`;
-                        const handshakesCapturedCard = document.querySelector('.glass-effect.rounded-xl.p-6:nth-child(2) h3');
-                        if (handshakesCapturedCard && response.data.handshakes_captured_count) handshakesCapturedCard.textContent = response.data.handshakes_captured_count;
-
-                        const handshakeCtrlCard = document.querySelector('.hacker-card[data-action="handshake"]');
-                        if (handshakeCtrlCard) {
-                            handshakeCtrlCard.querySelector('.text-xs.bg-yellow-500\\/20').textContent = 'Active';
-                            handshakeCtrlCard.querySelector('.text-xs.text-gray-400').textContent = `SSID: ${response.data.ssid || args[2] || args[0]}`;
-                        }
-                        // handshakeChart should be updated by a dedicated socket.io event or if API provides full chart data
+                        userMessage = `Handshake capture command sent for ${response.data.ssid || args[0]}. Status: ${response.message || 'Check logs/events'}`;
+                        // TODO: Make UI updates more robust
+                        // const handshakesCapturedCard = document.querySelector('.glass-effect.rounded-xl.p-6:nth-child(2) h3');
+                        // if (handshakesCapturedCard && response.data.handshakes_captured_count) handshakesCapturedCard.textContent = response.data.handshakes_captured_count;
+                        // const handshakeCtrlCard = document.querySelector('.hacker-card[data-action="handshake"]');
+                        // if (handshakeCtrlCard) {
+                        //     handshakeCtrlCard.querySelector('.text-xs.bg-yellow-500\\/20').textContent = 'Active'; // Or based on actual status
+                        //     handshakeCtrlCard.querySelector('.text-xs.text-gray-400').textContent = `SSID: ${response.data.ssid || args[2] || args[0]}`;
+                        // }
+                        appendToTerminal("Stats cards and Handshake Control Panel card are STUBS and not dynamically updated yet.");
                     } else {
-                        userMessage = `Error starting handshake capture: ${response.message}`;
+                        userMessage = `Error starting handshake capture: ${response.message || 'Unknown error'}`;
+                        console.error("Handshake capture error response:", response);
                     }
                     appendToTerminal(userMessage);
-                    if (response.status !== 'success') appendToTerminal(`Details: ${JSON.stringify(response, null, 2)}`);
+                    if (response.status !== 'success') appendToTerminal(`Details: <pre>${JSON.stringify(response, null, 2)}</pre>`);
                     break;
                 case 'deauth':
                     if (args.length < 1) {
@@ -307,20 +319,21 @@ document.addEventListener('DOMContentLoaded', function () {
                     appendToTerminal(`Starting deauth attack on BSSID ${args[0]}...`);
                     response = await startDeauthAttack(args[0], args[1], args[2], args[3]);
                     if (response.status === 'success' && response.data) {
-                        userMessage = `Deauth attack on ${args[0]} finished. Packets sent: ${response.data.packets_sent || 'N/A'}.`;
-                        const deauthAttacksCard = document.querySelector('.glass-effect.rounded-xl.p-6:nth-child(3) h3');
-                        if (deauthAttacksCard && response.data.deauth_attacks_count) deauthAttacksCard.textContent = response.data.deauth_attacks_count;
-
-                        const deauthCtrlCard = document.querySelector('.hacker-card[data-action="deauth"]');
-                        if(deauthCtrlCard) {
-                            deauthCtrlCard.querySelector('.text-xs.bg-red-500\\/20').textContent = 'Finished'; // Or 'Active' if it's ongoing
-                        }
-                        // handshakeChart should be updated by a dedicated socket.io event or if API provides full chart data
+                        userMessage = `Deauth attack command sent for ${args[0]}. Status: ${response.message || 'Check logs/events'}`;
+                        // TODO: Make UI updates more robust
+                        // const deauthAttacksCard = document.querySelector('.glass-effect.rounded-xl.p-6:nth-child(3) h3');
+                        // if (deauthAttacksCard && response.data.deauth_attacks_count) deauthAttacksCard.textContent = response.data.deauth_attacks_count;
+                        // const deauthCtrlCard = document.querySelector('.hacker-card[data-action="deauth"]');
+                        // if(deauthCtrlCard) {
+                        //     deauthCtrlCard.querySelector('.text-xs.bg-red-500\\/20').textContent = 'Finished'; // Or based on actual status
+                        // }
+                        appendToTerminal("Stats cards and Deauth Control Panel card are STUBS and not dynamically updated yet.");
                     } else {
-                        userMessage = `Error during deauth attack: ${response.message}`;
+                        userMessage = `Error during deauth attack: ${response.message || 'Unknown error'}`;
+                        console.error("Deauth attack error response:", response);
                     }
                     appendToTerminal(userMessage);
-                    if (response.status !== 'success') appendToTerminal(`Details: ${JSON.stringify(response, null, 2)}`);
+                    if (response.status !== 'success') appendToTerminal(`Details: <pre>${JSON.stringify(response, null, 2)}</pre>`);
                     break;
                 case 'crack':
                     if (args.length < 2) {
@@ -330,19 +343,22 @@ document.addEventListener('DOMContentLoaded', function () {
                     appendToTerminal(`Starting handshake cracking for ${args[0]}...`);
                     response = await startCrackHandshake(args[0], args[1]);
                      if (response.status === 'success' && response.data) {
-                        userMessage = `Cracking session for ${args[0]} status: ${response.message}.`;
-                        if(response.data.password_found) {
-                             userMessage += ` Password found: <span class='text-green-400 font-bold'>${response.data.password}</span>`;
-                        } else {
+                        userMessage = `Cracking session for ${args[0]} status: ${response.message || 'Completed'}.`;
+                        if(response.data.password_found && response.data.password) { // Check if password field exists and is non-empty
+                             userMessage += ` Password found: <span class='text-green-400 font-bold'>${response.data.password.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>`;
+                        } else if (response.data.password_found === false) { // Explicitly not found
                              userMessage += " Password not found.";
                         }
-                        const crackingSessionsCard = document.querySelector('.glass-effect.rounded-xl.p-6:nth-child(4) h3');
-                        if(crackingSessionsCard && response.data.cracking_sessions_count) crackingSessionsCard.textContent = response.data.cracking_sessions_count;
+                        // TODO: Make UI updates more robust
+                        // const crackingSessionsCard = document.querySelector('.glass-effect.rounded-xl.p-6:nth-child(4) h3');
+                        // if(crackingSessionsCard && response.data.cracking_sessions_count) crackingSessionsCard.textContent = response.data.cracking_sessions_count;
+                        appendToTerminal("Stats cards for Cracking Sessions is a STUB and not dynamically updated yet.");
                     } else {
-                        userMessage = `Error starting cracking session: ${response.message}`;
+                        userMessage = `Error starting cracking session: ${response.message || 'Unknown error'}`;
+                        console.error("Crack handshake error response:", response);
                     }
                     appendToTerminal(userMessage);
-                    if (response.status !== 'success') appendToTerminal(`Details: ${JSON.stringify(response, null, 2)}`);
+                    if (response.status !== 'success') appendToTerminal(`Details: <pre>${JSON.stringify(response, null, 2)}</pre>`);
                     break;
                 case 'clear':
                     while (terminalOutput.children.length > 1 && terminalOutput.firstChild !== terminalOutput.querySelector('.flex.items-center:has(input#terminalInput)')) {
@@ -389,17 +405,33 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   const topNavInterfaceValue = document.getElementById('top-nav-interface-value');
-  // This element is updated by the 'monitor' command.
+  // This element is updated by the 'monitor' command. (TODO: Make this update more robust)
 
     if (terminalOutput && terminalInput) {
         const initialMessages = [
             "iNTRUDER v1.5 - Cyberpunk WiFi Pentesting Suite",
             "Initializing modules...",
-            "[<span class='text-yellow-400'>!</span>] SocketIO connection available for real-time updates.",
+            "[<span class='text-yellow-400'>!</span>] SocketIO connection available for real-time updates (stub handlers).",
             "----------------------------------------",
             "Type 'help' for available commands.",
-            "----------------------------------------"
+            "----------------------------------------",
+            "NOTE: UI elements for stats and control panel cards are currently STUBS and will not dynamically update based on commands yet."
         ];
         initialMessages.forEach(msg => appendToTerminal(msg));
     }
 });
+
+/*
+Overall JS Recommendations:
+- Implement full data parsing and UI updates for all Socket.IO events (e.g., 'handshake-update', 'network-stats').
+- Ensure all API endpoints called (e.g., '/api/log-sniffer') are correct and match the backend implementation.
+- Develop more robust UI update mechanisms. Instead of querySelector for general cards, use specific IDs or more targeted selectors
+  for elements that need to change (e.g., status text, icons on control panel cards, values in stat cards).
+- Implement actual "Stop" functionality for ongoing operations (Monitor, Scan, Handshake Capture, Deauth). This will require
+  corresponding backend API endpoints to stop these processes.
+- Error Handling: While postData has basic error handling, consider more user-friendly error messages in the terminal
+  rather than just JSON stringified responses for all error cases.
+- Input Sanitization: For commands displayed back in the terminal, ensure proper HTML escaping if user input could
+  contain HTML characters (basic escaping added for command display).
+- Code Structure: For more complex interactions, consider breaking down command handlers into smaller functions.
+*/

@@ -3,127 +3,170 @@ import logging
 import json
 from datetime import datetime, timezone # Use timezone-aware UTC
 
-# Attempt to import config relative to the backend directory
-# This assumes that when backend.core.event_logger is imported, 'backend' is a known package.
-# This should work if the application is run with `python -m backend.server`
-try:
-    from .. import config
-except ImportError:
-    # Fallback for cases where this module might be run or imported in a context
-    # where the relative import fails (e.g. some testing scenarios or if path structure changes)
-    # This is not ideal for production but can help in certain dev/test setups.
-    # A more robust solution would involve proper packaging and PYTHONPATH setup.
-    import sys
-    import os
-    # Add backend's parent directory to sys.path to allow import of backend.config
-    # This is a bit of a hack. Proper packaging is better.
-    # current_dir = os.path.dirname(os.path.abspath(__file__)) # backend/core
-    # backend_dir = os.path.dirname(current_dir) # backend/
-    # project_root = os.path.dirname(backend_dir) # /app (project root)
-    # if project_root not in sys.path:
-    #    sys.path.insert(0, project_root)
-    # try:
-    #    from backend import config
-    # except ImportError:
-    #    # If it still fails, create a dummy config object for basic operation
-    #    # This is to prevent crashing if config is absolutely unfindable in some contexts.
-    #    class DummyConfig:
-    #        EVENT_LOG_FILE = 'fallback_session_events.jsonl'
-    #        LOG_LEVEL = 'DEBUG' # Default log level for the logger itself
-    #    config = DummyConfig()
-    #    print(f"WARNING: backend.config not found, using fallback for event_logger. Events will go to {config.EVENT_LOG_FILE}", file=sys.stderr)
+import logging
+import json
+import os
+import sys # For issuing warnings and potentially for path adjustments in __main__
+from datetime import datetime, timezone
 
-    # Simpler fallback for now if the above is too complex for the environment:
-    # Assume config might be in the same directory or globally accessible in test scenarios.
-    # This will likely cause issues if not run via `python -m backend.server`.
-    # The primary `from .. import config` should be the one that works.
-    class DummyConfig:
-        EVENT_LOG_FILE = 'fallback_session_events.jsonl'
-        LOG_LEVEL = 'DEBUG'
-    config = DummyConfig()
-    # This fallback is problematic; the `from .. import config` should be made to work.
-    # For now, proceeding with the assumption that the primary import works when server is run.
-    # The issue is that opsec_utils also needs config and is in plugins.
-    # The server.py is in backend/.
-    # backend/config.py
-    # backend/core/event_logger.py -> needs ../config.py
-    # backend/plugins/opsec_utils.py -> needs ../config.py
-    # backend/plugins/scanner.py -> needs ../config.py
-    # This structure is consistent for `from .. import config`.
-    # The issue might be if this file (event_logger.py) itself is run standalone.
-
+# Initialize logger for this module
 logger = logging.getLogger(__name__)
 
-# Ensure EVENT_LOG_FILE is available, defaulting if necessary.
-# This default is more of a safeguard; config should always be primary.
-EVENT_LOG_FILENAME = 'session_events.jsonl'
+# Primary configuration import
 try:
-    EVENT_LOG_FILENAME = config.EVENT_LOG_FILE
-except AttributeError:
-    logger.warning(f"'EVENT_LOG_FILE' not found in config. Defaulting to '{EVENT_LOG_FILENAME}'. This might indicate a config loading issue.")
-    # Create a dummy attribute on config if it's the DummyConfig and it's missing
+    from .. import config
+    # Check if EVENT_LOG_FILE is present, if not, it might be a DummyConfig or incomplete config
     if not hasattr(config, 'EVENT_LOG_FILE'):
-         setattr(config, 'EVENT_LOG_FILE', EVENT_LOG_FILENAME)
+        logger.warning("Configuration 'config' loaded, but 'EVENT_LOG_FILE' is not defined. Using default.")
+        # Provide a default on the loaded config if it's missing (e.g. if it's a test/dummy config)
+        setattr(config, 'EVENT_LOG_FILE', 'default_event_log.jsonl')
+except ImportError:
+    logger.warning(
+        "Failed to import 'config' using relative import (from .. import config). "
+        "This module may not function correctly if not part of the 'backend' package. "
+        "Using a fallback configuration for EVENT_LOG_FILE."
+    )
+    # Define a simple fallback configuration object
+    class FallbackConfig:
+        EVENT_LOG_FILE: str = 'fallback_event_log.jsonl'
+        # Add other essential config variables if event_logger directly uses them,
+        # otherwise, keep it minimal. LOG_LEVEL is usually handled by the app's main logging setup.
+
+    config = FallbackConfig()
+
+# Use EVENT_LOG_FILE from the (potentially fallback) config
+EVENT_LOG_FILENAME: str = config.EVENT_LOG_FILE
 
 
-def log_event(event_type: str, data: dict):
+def log_event(event_type: str, data: dict) -> None:
     """
     Logs a structured event to a JSON Lines file.
+
+    Args:
+        event_type: A string categorizing the event (e.g., 'user_login', 'file_upload').
+        data: A dictionary containing event-specific information.
     """
     try:
-        event_data = {
-            "timestamp": datetime.now(timezone.utc).isoformat(), # UTC timestamp
+        event_data: dict = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "event_type": event_type,
-            "details": data  # data should be a dictionary of relevant information
+            "details": data
         }
 
-        # Use the EVENT_LOG_FILENAME which has fallback logic
-        log_file_path = EVENT_LOG_FILENAME
+        log_file_path: str = EVENT_LOG_FILENAME
 
-        # Ensure the directory for the log file exists (if it's configured with a path)
-        log_dir = os.path.dirname(log_file_path)
+        # Ensure the directory for the log file exists
+        log_dir: str = os.path.dirname(log_file_path)
         if log_dir and not os.path.exists(log_dir):
-            os.makedirs(log_dir, exist_ok=True)
-            logger.info(f"Created directory for event log: {log_dir}")
+            try:
+                os.makedirs(log_dir, exist_ok=True)
+                logger.info(f"Created directory for event log: {log_dir}")
+            except OSError as e:
+                logger.error(f"Failed to create log directory {log_dir}: {e}", exc_info=True)
+                # Potentially fall back to logging in the current directory or disable logging
+                # For now, we'll let the open() call fail if the directory can't be made.
+                return # Exit if directory creation fails
 
         with open(log_file_path, 'a', encoding='utf-8') as f:
             f.write(json.dumps(event_data) + '\n')
 
+        # Use the module's logger for debug messages
         logger.debug(f"Logged event: {event_type}, Data: {data}")
 
     except Exception as e:
-        # This logger is for the event_logger module itself.
-        # Avoid calling log_event() from here to prevent recursion on failure.
+        # Use the module's logger for error messages
         logger.error(f"Failed to log event type '{event_type}': {e}", exc_info=True)
 
 if __name__ == '__main__':
-    # Example Usage (for testing event_logger.py itself)
-    # 1. Ensure config.py is accessible or mock it.
-    # For this test, let's assume a local dummy config for simplicity if main one fails.
+    # This block is for testing the event_logger.py module directly.
+    # It demonstrates how to use log_event and verifies its output.
+    # Important: For this to run correctly, it might require adjusting the Python path
+    # if the `from .. import config` fails, or by running as a module:
+    # `python -m backend.core.event_logger` from the project root.
 
-    class TestConfig:
-        EVENT_LOG_FILE = "test_events.jsonl"
-        LOG_LEVEL = "DEBUG" # For the main application logger, not event_logger's logger
+    # Setup basic logging for the test execution (distinct from app's logging)
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        stream=sys.stdout # Log to stdout for testing
+    )
 
-    # Override config for test if needed, or ensure backend.config is found
-    # For this standalone test, we'll point to a local test config.
-    # This is tricky because the file expects `from .. import config`.
-    # To test this file standalone, you'd typically run it from the `backend` directory:
-    # python -m core.event_logger
-    # Or adjust sys.path. For now, this __main__ might not fully work without path setup.
+    logger.info("Starting test run for event_logger.py...")
 
-    # Simplified test logging setup for this example:
-    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-    logger.info("Testing event_logger.py...")
+    # Define a distinct test event log filename
+    TEST_EVENT_LOG_FILENAME = "test_event_logger_output.jsonl"
 
-    # Mockup: if this file is run directly, config might not be the "real" one.
-    # Re-point EVENT_LOG_FILENAME for this specific test run.
-    EVENT_LOG_FILENAME = "test_run_events.jsonl"
-    if os.path.exists(EVENT_LOG_FILENAME):
-        os.remove(EVENT_LOG_FILENAME) # Clean up old test file
+    # Override EVENT_LOG_FILENAME for this test session
+    # This is a bit of a hack for __main__ but makes testing self-contained.
+    # A better approach for testing involves using a dedicated test configuration
+    # or mocking the config object.
+    original_event_log_filename = EVENT_LOG_FILENAME
+    EVENT_LOG_FILENAME = TEST_EVENT_LOG_FILENAME
+    logger.info(f"Test events will be logged to: {TEST_EVENT_LOG_FILENAME}")
 
-    log_event("test_event_1", {"user": "test_user", "action": "button_click", "value": 123})
-    log_event("test_event_2", {"system": "auth_service", "status": "login_failed", "reason": "bad_password"})
+    # Clean up any previous test log file
+    if os.path.exists(TEST_EVENT_LOG_FILENAME):
+        try:
+            os.remove(TEST_EVENT_LOG_FILENAME)
+            logger.info(f"Removed existing test log file: {TEST_EVENT_LOG_FILENAME}")
+        except OSError as e:
+            logger.warning(f"Could not remove old test log file {TEST_EVENT_LOG_FILENAME}: {e}")
+
+    # Log some test events
+    log_event("test_startup", {"module": "event_logger", "status": "testing"})
+    log_event("user_action", {"user_id": "tester01", "action": "create_document", "doc_id": "doc123"})
+    complex_data_test = {
+        "process_id": 12345,
+        "metrics": {"cpu_usage": 0.75, "memory_rss_mb": 256},
+        "tags": ["critical", "data_processing"]
+    }
+    log_event("system_metric", complex_data_test)
+
+    # Verify the content of the test log file
+    try:
+        with open(TEST_EVENT_LOG_FILENAME, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        assert len(lines) == 3, f"Expected 3 log entries, got {len(lines)}"
+        logger.info(f"Found {len(lines)} lines in the test log file.")
+
+        event1 = json.loads(lines[0])
+        assert event1["event_type"] == "test_startup"
+        assert event1["details"]["module"] == "event_logger"
+        logger.info("Test event 1 verified.")
+
+        event2 = json.loads(lines[1])
+        assert event2["event_type"] == "user_action"
+        assert event2["details"]["user_id"] == "tester01"
+        logger.info("Test event 2 verified.")
+
+        event3 = json.loads(lines[2])
+        assert event3["event_type"] == "system_metric"
+        assert event3["details"]["metrics"]["cpu_usage"] == 0.75
+        logger.info("Test event 3 (complex data) verified.")
+
+        logger.info(f"All test events successfully written and verified in {TEST_EVENT_LOG_FILENAME}.")
+
+    except FileNotFoundError:
+        logger.error(f"Test log file {TEST_EVENT_LOG_FILENAME} was not created.", exc_info=True)
+    except json.JSONDecodeError:
+        logger.error(f"Error decoding JSON from {TEST_EVENT_LOG_FILENAME}.", exc_info=True)
+    except AssertionError as e:
+        logger.error(f"Test assertion failed: {e}", exc_info=True)
+    except Exception as e:
+        logger.error(f"An unexpected error occurred during test verification: {e}", exc_info=True)
+    finally:
+        # Clean up the test log file after verification
+        if os.path.exists(TEST_EVENT_LOG_FILENAME):
+            try:
+                os.remove(TEST_EVENT_LOG_FILENAME)
+                logger.info(f"Cleaned up test log file: {TEST_EVENT_LOG_FILENAME}")
+            except OSError as e:
+                logger.warning(f"Could not clean up test log file {TEST_EVENT_LOG_FILENAME}: {e}. Please remove it manually.")
+        # Restore original EVENT_LOG_FILENAME if it was changed
+        EVENT_LOG_FILENAME = original_event_log_filename
+
+    logger.info("Test run for event_logger.py finished.")
 
     try:
         with open(EVENT_LOG_FILENAME, 'r') as f:
