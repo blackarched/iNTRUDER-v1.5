@@ -1,3 +1,10 @@
+"""
+Manages WPA/WPA2 handshake capture using airodump-ng.
+
+This module provides the HandshakeCapture class to control airodump-ng
+for capturing wireless network handshakes, targeting specific SSIDs/BSSIDs
+and channels. It includes error handling, timeout management, and event logging.
+"""
 import subprocess
 import logging
 import time
@@ -5,23 +12,27 @@ import os
 import re # For sanitizing SSID/BSSID in filenames
 from typing import Optional, Dict, Any, List
 
+# Initialize logger early
+logger: logging.Logger = logging.getLogger(__name__)
+
 # Attempt to import from local package structure
 try:
     from . import config
     from .core.network_utils import interface_exists, is_monitor_mode
+    # Ensure relative import for event_logger is correct based on file structure
+    # If event_logger is in backend.core, then from ..core.event_logger import log_event
     from ..core.event_logger import log_event
 except ImportError:
     # Fallback for direct execution or different environment setups (e.g. tests)
     # This assumes that 'config.py', 'core/network_utils.py', and 'core/event_logger.py'
     # might be discoverable in PYTHONPATH or current working directory.
-    logger = logging.getLogger(__name__)
     logger.warning("Running HandshakeCapture with fallback imports. Ensure necessary modules (config, core.network_utils, core.event_logger) are accessible.")
     import config # type: ignore
     from core.network_utils import interface_exists, is_monitor_mode # type: ignore
     from core.event_logger import log_event # type: ignore
 
-
-logger = logging.getLogger(__name__)
+# Named constant for arbitrary error code
+AIRODUMP_COMM_ERROR_CODE = -98
 
 class HandshakeCapture:
     """
@@ -224,7 +235,7 @@ class HandshakeCapture:
                     logger.info(f"Airodump-ng (PID: {pid}) killed. Exit code: {return_code}.")
                 except Exception as e_comm_term: # pylint: disable=broad-except
                     logger.error(f"Error communicating with terminated PID {pid}: {e_comm_term}", exc_info=True)
-                    return_code = self.process.poll() if self.process.poll() is not None else -98 # Arbitrary error code
+                    return_code = self.process.poll() if self.process.poll() is not None else AIRODUMP_COMM_ERROR_CODE
 
             if stdout_str:
                 logger.debug(f"Final airodump-ng stdout (PID {pid}):\n{stdout_str.strip()}")

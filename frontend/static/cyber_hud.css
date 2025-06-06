@@ -1,6 +1,40 @@
-/* Fonts: Share Tech Mono (OFL), Orbitron (OFL) via Google Fonts. */
-/* TODO: Consider hosting fonts locally if offline capability is desired or to avoid reliance on Google Fonts CDN. */
-@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;500;700&display=swap');
+/* Local Font Definitions */
+@font-face {
+  font-family: 'Share Tech Mono';
+  src: url('/static/fonts/ShareTechMono-Regular.woff2') format('woff2'); /* Path relative to where CSS is served from, or absolute from root */
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap; /* Improves perceived performance */
+}
+
+@font-face {
+  font-family: 'Orbitron';
+  src: url('/static/fonts/Orbitron-Regular.woff2') format('woff2');
+  font-weight: 400; /* Corresponds to Orbitron:wght@400 */
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Orbitron';
+  src: url('/static/fonts/Orbitron-Medium.woff2') format('woff2');
+  font-weight: 500; /* Corresponds to Orbitron:wght@500 */
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Orbitron';
+  src: url('/static/fonts/Orbitron-Bold.woff2') format('woff2');
+  font-weight: 700; /* Corresponds to Orbitron:wght@700 */
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Original comment about fonts - can be removed or updated if local hosting is now the norm */
+/* Fonts: Share Tech Mono (OFL), Orbitron (OFL) - Now hosted locally. */
+/* TODO: Ensure font files (ShareTechMono-Regular.woff2, Orbitron-Regular.woff2, Orbitron-Medium.woff2, Orbitron-Bold.woff2)
+   are placed in frontend/static/fonts/ directory. */
 
 :root {
   --primary: #00ff88;

@@ -18,7 +18,7 @@
     <script src="/socket.io/socket.io.js"></script>
     <!-- Animate.css link removed as its source/necessity is unconfirmed. If needed, add a CDN or local file and verify license. -->
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="cyber_hud.css">
+    <link rel="stylesheet" href="/static/cyber_hud.css">
 </head>
 <body class="min-h-screen">
   <!-- Matrix rain background -->
@@ -188,11 +188,11 @@
         </a>
         <a
           href="#"
-          class="flex items-center p-3 rounded-lg text-gray-300 hover:bg-slate-800/50 transition-colors disabled-link"
-          disabled
+          class="flex items-center p-3 rounded-lg text-gray-300 hover:bg-slate-800/50 transition-colors sidebar-nav-link"
+          data-action="generate_report" data-command="generate_report"
         >
           <i class="fas fa-file-alt w-6 text-center"></i>
-          <span class="ml-3 hidden md:block">Reports</span> <!-- TODO: Implement Reports functionality -->
+          <span class="ml-3 hidden md:block">Reports</span>
         </a>
       </nav>
 
@@ -204,7 +204,7 @@
             </div>
             <div class="ml-3">
               <div class="text-sm font-medium text-white">Root Privileges</div>
-              <div class="text-xs text-green-400">Active</div> <!-- TODO: Make Root Privileges status dynamic -->
+              <div class="text-xs text-green-400" id="rootStatusDisplay">Active</div>
             </div>
           </div>
           <button
@@ -289,9 +289,9 @@
             <div class="flex justify-between items-start">
               <div>
                 <p class="text-gray-400 text-sm">HANDSHAKES CAPTURED</p>
-                <h3 class="text-2xl font-bold mt-1 text-blue-400">3</h3>
-                <p class="text-green-400 text-sm mt-2 flex items-center">
-                  <i class="fas fa-lock-open mr-1"></i> Last: 2m ago
+                <h3 class="text-2xl font-bold mt-1 text-blue-400" id="handshakesCapturedCount">0</h3>
+                <p class="text-green-400 text-sm mt-2 flex items-center" id="handshakesCapturedLast">
+                  <i class="fas fa-lock-open mr-1"></i> Last: N/A
                 </p>
               </div>
               <div class="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center">
@@ -447,9 +447,9 @@
                     </div>
                     <button
                       class="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded hover:bg-red-500/30"
-                      disabled
+                      id="stopHandshakeBtn"
                     >
-                      <i class="fas fa-stop"></i> <!-- TODO: Implement Stop Handshake Capture functionality -->
+                      <i class="fas fa-stop"></i>
                     </button>
                   </div>
                 </div>
@@ -632,7 +632,7 @@
       </main>
     </div>
   </div>
-  <script src="cyber_hud.js"></script>
+  <script src="/static/cyber_hud.js"></script>
 </body>
 </html>
 <!--

@@ -1,3 +1,7 @@
+"""
+Operational Security (OpSec) utilities, currently featuring MACChanger.
+Provides functionalities to manage and spoof MAC addresses using the 'macchanger' tool.
+"""
 import logging
 import subprocess
 import re
@@ -32,7 +36,7 @@ except ImportError:
             return False
 
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 class MACChanger:
     """
@@ -151,16 +155,27 @@ class MACChanger:
         # This is a simplified version of _run_command for non-macchanger system utilities.
         # It does not use self.macchanger_path.
         success = False; stdout_str = ""; stderr_str = ""
-        try {
-            logger.debug(f"Executing system command: {' '.join(command_args)}")
-            process = subprocess.run(command_args, capture_output=True, text=True, check=check_errors, timeout=timeout)
+        try: # Corrected Python try block
+            logger.debug(f"Executing system command: {{' '.join(command_args)}}")
+            process = subprocess.run(command_args, capture_output=True, text=True, check=check_errors, timeout=timeout, encoding='utf-8', errors='ignore')
             stdout_str = process.stdout.strip() if process.stdout else ""
             stderr_str = process.stderr.strip() if process.stderr else ""
-            if process.returncode == 0: success = True
-        } except Exception as e: {
-            logger.error(f"System command {' '.join(command_args)} failed: {e}", exc_info=True)
+            if process.returncode == 0:
+                success = True
+        except subprocess.CalledProcessError as e:
+            logger.error(f"System command {{' '.join(command_args)}} failed with RC {e.returncode}: {e.stderr}", exc_info=True)
+            stderr_str = e.stderr.strip() if e.stderr else str(e) # Ensure stderr is string
+            stdout_str = e.stdout.strip() if e.stdout else ""
+        except subprocess.TimeoutExpired as e:
+            logger.error(f"System command {{' '.join(command_args)}} timed out: {e}", exc_info=True)
+            stderr_str = e.stderr.decode('utf-8', 'ignore').strip() if e.stderr else str(e)
+            stdout_str = e.stdout.decode('utf-8', 'ignore').strip() if e.stdout else ""
+        except FileNotFoundError as e:
+            logger.error(f"System command not found: {command_args[0]} ({e})", exc_info=True)
+            stderr_str = f"Command not found: {command_args[0]}"
+        except Exception as e: # General exception
+            logger.error(f"System command {{' '.join(command_args)}} failed unexpectedly: {e}", exc_info=True)
             stderr_str = str(e)
-        }
         return success, stdout_str, stderr_str
 
 

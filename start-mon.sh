@@ -7,8 +7,15 @@
 set -euo pipefail
 
 # --- Configuration & Variables ---
-LOG_DIR="logs"
-LOG_FILE="${LOG_DIR}/monitor_mode_setup.log"
+LOG_DIR="${INTRUDER_SCRIPT_LOG_DIR:-logs}" # Use INTRUDER_SCRIPT_LOG_DIR if set, otherwise default to "logs"
+# Ensure LOG_DIR is created early if it's custom, before LOG_FILE is defined using it.
+# The script already has `mkdir -p "${LOG_DIR}"` later, which is fine.
+
+LOG_FILE_NAME_DEFAULT="monitor_mode_setup.log"
+# Construct default log file path using the (potentially overridden) LOG_DIR
+DEFAULT_LOG_FILE_PATH="${LOG_DIR}/${LOG_FILE_NAME_DEFAULT}"
+# Use INTRUDER_MON_LOG_FILE if set, otherwise use the default constructed path
+LOG_FILE="${INTRUDER_MON_LOG_FILE:-${DEFAULT_LOG_FILE_PATH}}"
 DEFAULT_IFACE_CANDIDATES=("wlan0" "wlan1") # Common default wireless interface names
 
 # --- Helper Functions ---

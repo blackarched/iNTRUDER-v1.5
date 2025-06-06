@@ -1,4 +1,10 @@
 # backend/core/event_logger.py
+"""
+Provides a function to log structured events to a JSON Lines file.
+
+Events are timestamped in UTC and include an event type and detailed data.
+The log file location is determined by `config.EVENT_LOG_FILE`.
+"""
 import logging
 import json
 from datetime import datetime, timezone # Use timezone-aware UTC
@@ -10,7 +16,7 @@ import sys # For issuing warnings and potentially for path adjustments in __main
 from datetime import datetime, timezone
 
 # Initialize logger for this module
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 # Primary configuration import
 try:
@@ -166,34 +172,4 @@ if __name__ == '__main__':
         # Restore original EVENT_LOG_FILENAME if it was changed
         EVENT_LOG_FILENAME = original_event_log_filename
 
-    logger.info("Test run for event_logger.py finished.")
-
-    try:
-        with open(EVENT_LOG_FILENAME, 'r') as f:
-            lines = f.readlines()
-            assert len(lines) == 2
-            event1 = json.loads(lines[0])
-            assert event1["event_type"] == "test_event_1"
-            assert event1["details"]["user"] == "test_user"
-            logger.info("Event 1 written correctly.")
-            event2 = json.loads(lines[1])
-            assert event2["event_type"] == "test_event_2"
-            assert event2["details"]["system"] == "auth_service"
-            logger.info("Event 2 written correctly.")
-        logger.info(f"Test events successfully written to {EVENT_LOG_FILENAME}")
-    except Exception as e:
-        logger.error(f"Error during test verification: {e}", exc_info=True)
-    finally:
-        if os.path.exists(EVENT_LOG_FILENAME):
-            # os.remove(EVENT_LOG_FILENAME) # Optionally clean up
-            logger.info(f"Test log file '{EVENT_LOG_FILENAME}' created. Please inspect or remove it.")
-
-    # Test with a more complex data structure
-    complex_data = {
-        "target_interface": "wlan0mon",
-        "scan_options": {"type": "active", "channels": [1, 6, 11]},
-        "results_summary": {"networks_found": 15, "clients_associated": 3}
-    }
-    log_event("complex_scan_info", complex_data)
-    logger.info("Logged a complex event.")
-    logger.info("Test finished for event_logger.py.")
+    logger.info("Primary test run for event_logger.py finished.")

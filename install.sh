@@ -17,8 +17,9 @@ NC='\033[0m' # No Color
 
 LOG_DIR="logs"
 INSTALL_LOG_FILE="${LOG_DIR}/install_$(date +%Y%m%d_%H%M%S).log"
-BACKEND_SERVER_LOG="backend_server.log" # Placed in root, can be moved to LOG_DIR if preferred
-BACKEND_SERVER_PID_FILE="backend_server.pid" # For checking if server is running
+# Updated to use LOG_DIR
+BACKEND_SERVER_LOG="${LOG_DIR}/backend_server.log"
+BACKEND_SERVER_PID_FILE="${LOG_DIR}/backend_server.pid" # For checking if server is running
 SERVER_PORT=5000 # Default port for the backend server
 
 # --- Helper Functions ---
@@ -38,8 +39,8 @@ cleanup() {
     # Add any other cleanup tasks here
 }
 
-# Trap EXIT signal to run cleanup function
-trap cleanup EXIT
+# Trap EXIT, INT, TERM signals to run cleanup function
+trap cleanup EXIT INT TERM
 
 # --- Main Installation Logic ---
 echo -e "${CYAN}=== iNTRUDER v1.5 - Automated Installer ===${NC}"
@@ -98,9 +99,17 @@ echo -e "${YELLOW}Activating virtual environment and installing/upgrading Python
 # shellcheck source=/dev/null
 source "${VENV_DIR}/bin/activate" # Use source explicitly
 pip3 install --upgrade pip # Use pip3 explicitly
-pip3 install flask flask_cors flask-socketio
-# Consider adding other dependencies from a requirements.txt if available:
-# if [ -f "requirements.txt" ]; then pip3 install -r requirements.txt; fi
+# Ensure Python packages are primarily installed using requirements.txt
+if [ -f "requirements.txt" ]; then
+    echo -e "${YELLOW}Installing Python packages from requirements.txt...${NC}"
+    pip3 install -r requirements.txt
+else
+    echo -e "${RED}ERROR: requirements.txt not found. Cannot install Python dependencies.${NC}"
+    # Deactivate and exit if critical dependencies can't be installed
+    deactivate
+    exit 1
+fi
+# The line 'pip3 install flask flask_cors flask-socketio eventlet' is removed as these should be in requirements.txt
 
 # Step 6: Backend confirmation
 echo -e "${YELLOW}Step 6: Confirming backend server file presence...${NC}"
@@ -132,17 +141,44 @@ else
     nohup bash -c "source ./${VENV_DIR}/bin/activate && export PYTHONPATH=\$(pwd):\${PYTHONPATH} && python3 -m backend.server" > "${BACKEND_SERVER_LOG}" 2>&1 &
     SERVER_PID=$!
     echo "${SERVER_PID}" > "${BACKEND_SERVER_PID_FILE}"
-    echo -e "${YELLOW}Giving the server a moment to start (PID: ${SERVER_PID})...${NC}"
-    # Instead of a fixed sleep, a more robust check would be to curl a health endpoint.
-    # For simplicity in this script, we'll keep sleep but note its limitation.
-    sleep 8 # Increased sleep slightly, but this is still just a best-effort wait.
 
-    if ps -p "${SERVER_PID}" > /dev/null; then
-        echo -e "${GREEN}The backend server has been started in the background (PID: ${SERVER_PID}).${NC}"
+    echo -e "${YELLOW}Waiting for server to initialize (PID: ${SERVER_PID})...${NC}"
+    MAX_RETRIES=15 # Approx 30 seconds if 2s sleep
+    RETRY_COUNT=0
+    SERVER_STARTED=false
+    HEALTH_CHECK_URL="http://localhost:${SERVER_PORT}/api/health" # Assuming /api/health endpoint
+
+    # Ensure curl is available (it's installed by this script in Step 2)
+    if command -v curl >/dev/null 2>&1; then
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            echo -e "${YELLOW}Attempting to reach server at ${HEALTH_CHECK_URL} (Attempt $((RETRY_COUNT + 1))/${MAX_RETRIES})...${NC}"
+            # Use curl -s -f or check HTTP status code. -f makes curl fail silently on server errors (HTTP 4xx, 5xx).
+            # Adding --max-time 5 to prevent curl from hanging too long per attempt
+            if curl -s -f --max-time 5 "${HEALTH_CHECK_URL}" > /dev/null; then
+                SERVER_STARTED=true
+                break
+            fi
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            sleep 2
+        done
     else
-        echo -e "${RED}ERROR: The backend server failed to start. Check ${BACKEND_SERVER_LOG} for details.${NC}"
-        rm -f "${BACKEND_SERVER_PID_FILE}" # Remove PID file as server didn't start
-        # No exit here, user might want to check logs and try manually.
+        # Fallback if curl is somehow not available
+        logger_fallback_msg="WARNING: curl command not found. Falling back to simple process check for server start."
+        echo -e "${YELLOW}${logger_fallback_msg}${NC}"
+        # Log this to the main install log too
+        echo "$(date +%Y-%m-%d_%H:%M:%S) - ${logger_fallback_msg}" >> "${INSTALL_LOG_FILE}"
+        sleep 8 # Original sleep as a last resort fallback
+        if ps -p "${SERVER_PID}" > /dev/null; then
+            SERVER_STARTED=true # Assume started if process exists
+        fi
+    fi
+
+    if ${SERVER_STARTED}; then
+        echo -e "${GREEN}The backend server appears to be running (PID: ${SERVER_PID}).${NC}"
+    else
+        echo -e "${RED}ERROR: The backend server failed to start or become healthy in time. Check ${BACKEND_SERVER_LOG} for details.${NC}"
+        # Consistent with original logic, PID file is removed on failure here.
+        rm -f "${BACKEND_SERVER_PID_FILE}"
     fi
     echo -e "${YELLOW}Check ${CYAN}${BACKEND_SERVER_LOG}${YELLOW} for detailed output or errors.${NC}"
     echo -e "${YELLOW}You can check if the server is running with: ${CYAN}ps aux | grep '[p]ython3 -m backend.server'${NC} or by checking port ${SERVER_PORT}.${NC}"

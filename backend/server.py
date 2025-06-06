@@ -14,10 +14,11 @@ import signal
 import logging
 import subprocess
 import re # For basic MAC/interface validation
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO
-from typing import Optional # For type hints
+from typing import Optional, List, Dict, Any # Updated List, Dict, Any
+from datetime import datetime, timezone # Added datetime, timezone
 
 from . import config # Import the configuration
 import sys # For StreamHandler output to stdout
@@ -76,12 +77,19 @@ from .core.network_utils import interface_exists, is_monitor_mode # Import for i
 from .reporting import ReportGenerator # Import for reporting
 
 # Flask + SocketIO setup
-app = Flask(__name__)
+# Serve static files from ../frontend/static and templates from ../frontend
+app = Flask(__name__, static_folder='../frontend/static', template_folder='../frontend')
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
+# Route to serve index.html from the frontend directory
+@app.route('/')
+def serve_index():
+    return render_template("index.html")
+
 # Global process/state holders
-_services = {}
+_services: Dict[str, Any] = {} # Added type hint
+handshake_capture_log: List[Dict[str, Any]] = [] # For storing info about successful handshake captures
 
 # Graceful shutdown
 def shutdown_handler(signum, frame):
@@ -318,6 +326,15 @@ def api_start_handshake():
 
     capture_result = hs_capture_instance.capture()
 
+    if capture_result.get("status") in ["success", "success_with_errors"] and capture_result.get("file"):
+        handshake_capture_log.append({
+            "file": capture_result.get("file"),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "bssid": bssid, # From request
+            "ssid": ssid    # From request
+        })
+        log_event("handshake_logged_for_stats", {"file": capture_result.get("file"), "bssid": bssid, "ssid": ssid})
+
     http_status_code = 500
     status_from_run = capture_result.get("status", "error")
 
@@ -331,6 +348,23 @@ def api_start_handshake():
             http_status_code = 400
 
     return jsonify(capture_result), http_status_code
+
+# Endpoint: Stop Handshake Capture
+@app.route('/api/handshake/stop', methods=['POST'])
+def api_stop_handshake():
+    logger.info("Handshake stop requested via API.")
+    hs_instance = _services.pop('handshake', None) # Remove from services once stop is called
+    if hs_instance and hasattr(hs_instance, 'shutdown'):
+        try:
+            hs_instance.shutdown() # shutdown() in HandshakeCapture logs events
+            logger.info("Handshake capture process instructed to stop.")
+            return jsonify({"status": "success", "message": "Handshake capture stop initiated."}), 200
+        except Exception as e:
+            logger.error(f"Error during handshake stop: {e}", exc_info=True)
+            return jsonify({"status": "error", "message": f"Error stopping handshake: {str(e)}"}), 500
+    else:
+        logger.warning("No active handshake capture found to stop.")
+        return jsonify({"status": "error", "message": "No active handshake capture found or already stopped."}), 404
 
 # Endpoint: Wi-Fi Cracking
 @app.route('/api/crack/start', methods=['POST'])
@@ -550,6 +584,41 @@ def api_start_scan():
 @app.route('/api/health', methods=['GET'])
 def health():
     return jsonify({'status': 'healthy'}), 200
+
+# Endpoint to get the default monitor interface
+@app.route('/api/interfaces/default_monitor', methods=['GET'])
+def get_default_monitor_interface():
+    # This is a simplified version; a more robust way would track active monitor iface
+    # or verify existence and mode.
+    default_base_iface = getattr(config, 'DEFAULT_IFACE', 'wlan0')
+    monitor_suffix = getattr(config, 'MONITOR_IFACE_SUFFIX', 'mon')
+    mon_iface = f"{default_base_iface}{monitor_suffix}"
+
+    # Optionally, verify if this interface actually exists and is in monitor mode here
+    # For now, just returning the configured default convention.
+    # exists = interface_exists(mon_iface)
+    # is_mon = is_monitor_mode(mon_iface)
+    # current_status_str = "active" if exists and is_mon else ("exists" if exists else "not_found")
+
+    log_event("default_monitor_interface_queried", {"interface": mon_iface, "source": "config_defaults"})
+    return jsonify({"status": "success", "interface": mon_iface}), 200
+
+# Endpoint to get handshake capture stats
+@app.route('/api/stats/handshakes_count', methods=['GET'])
+def get_handshakes_count():
+    count = len(handshake_capture_log)
+    last_capture_time = None
+    if handshake_capture_log:
+        last_capture_time = handshake_capture_log[-1]["timestamp"]
+    # Client side can format the timestamp.
+    return jsonify({"status": "success", "count": count, "last_capture_timestamp": last_capture_time}), 200
+
+# Endpoint to check root status
+@app.route('/api/system/root_status', methods=['GET'])
+def get_root_status():
+    is_root = (os.geteuid() == 0)
+    log_event("root_status_queried", {"is_root": is_root})
+    return jsonify({"status": "success", "is_root": is_root}), 200
 
 # SocketIO example: real-time logs
 @socketio.on('connect')

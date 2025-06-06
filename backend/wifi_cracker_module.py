@@ -1,21 +1,28 @@
+"""
+Manages WPA/WPA2 PSK cracking using aircrack-ng.
+
+Provides the WifiCracker class to control aircrack-ng for attempting
+to crack passwords from handshake capture files using a wordlist.
+Includes real-time output parsing, timeout management, and event logging.
+"""
 import subprocess
 import logging
 import os # For __main__ example file checks
 from typing import Optional, Dict, Any, List
 
+# Initialize logger early
+logger: logging.Logger = logging.getLogger(__name__)
+
 # Attempt to import from local package structure
 try:
     from . import config # For AIRCRACK_TIMEOUT
+    # Ensure relative import for event_logger is correct
     from ..core.event_logger import log_event
 except ImportError:
     # Fallback for direct execution or different environment setups
-    logger = logging.getLogger(__name__)
     logger.warning("Running WifiCracker with fallback imports. Ensure 'config' and 'core.event_logger' are accessible.")
     import config # type: ignore
     from core.event_logger import log_event # type: ignore
-
-
-logger = logging.getLogger(__name__)
 
 class WifiCracker:
     """

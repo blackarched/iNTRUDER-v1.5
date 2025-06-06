@@ -180,14 +180,12 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   async function startHandshakeCapture(bssid, channel = "", ssid = "") {
-    // TODO: Verify if '/api/log-sniffer' is the correct final endpoint name for handshake capture.
-    // This endpoint name seems like a placeholder or from an earlier iteration.
-    // It should likely be something like '/api/capture-handshake' or similar.
-    return await postData("/api/log-sniffer", { bssid, channel, ssid });
+    // Corrected API endpoint for handshake capture.
+    return await postData("/api/handshake/start", { bssid, channel, ssid });
   }
 
   async function startDeauthAttack(bssid, client_mac = "", count = "100", iface = "wlan0mon") {
-    return await postData("/api/deauth", { bssid, client: client_mac, count, interface: iface });
+    return await postData("/api/deauth/start", { target_bssid: bssid, client_mac: client_mac, count: count, iface: iface });
   }
 
   async function startCrackHandshake(cap_file, wordlist_file) {
@@ -242,13 +240,14 @@ document.addEventListener('DOMContentLoaded', function () {
                     break;
                 case 'monitor':
                     response = await startMonitorMode(args[0]);
-                    if (response.status === 'success') {
-                        userMessage = `Monitor mode successfully started on ${response.data?.interface || args[0] || 'default interface'}.`;
-                        // TODO: Make UI updates more robust, e.g., use specific IDs for elements being updated.
-                        document.getElementById('top-nav-interface-value').textContent = response.data?.interface || args[0] || 'wlan0mon';
+                    if (response.status === 'success' && response.monitor_interface) { // Check for monitor_interface in response
+                        const newInterface = response.monitor_interface;
+                        userMessage = `Monitor mode successfully started on ${newInterface}.`;
+                        updateTopNavInterface(newInterface); // Update top nav display
                         const monitorCard = document.querySelector('.hacker-card[data-action="monitor"]');
                         if (monitorCard) {
                             // These are stubbed UI elements, actual state change logic will be more complex
+                            // monitorCard.querySelector('.text-xs.text-gray-400').textContent = `Interface: ${newInterface}`;
                             // monitorCard.querySelector('.text-xs.bg-green-500\\/20').textContent = 'Active';
                             // monitorCard.querySelector('.w-3.h-3.rounded-full').classList.add('bg-green-500', 'animate-pulse');
                             // monitorCard.querySelector('.text-xs.text-gray-400').textContent = `Interface: ${response.data?.interface || args[0] || 'wlan0mon'}`;
@@ -293,33 +292,35 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                     appendToTerminal(`Starting handshake capture for BSSID ${args[0]}...`);
                     response = await startHandshakeCapture(args[0], args[1], args[2]);
-                    if (response.status === 'success' && response.data) {
-                        userMessage = `Handshake capture command sent for ${response.data.ssid || args[0]}. Status: ${response.message || 'Check logs/events'}`;
-                        // TODO: Make UI updates more robust
-                        // const handshakesCapturedCard = document.querySelector('.glass-effect.rounded-xl.p-6:nth-child(2) h3');
-                        // if (handshakesCapturedCard && response.data.handshakes_captured_count) handshakesCapturedCard.textContent = response.data.handshakes_captured_count;
-                        // const handshakeCtrlCard = document.querySelector('.hacker-card[data-action="handshake"]');
-                        // if (handshakeCtrlCard) {
-                        //     handshakeCtrlCard.querySelector('.text-xs.bg-yellow-500\\/20').textContent = 'Active'; // Or based on actual status
-                        //     handshakeCtrlCard.querySelector('.text-xs.text-gray-400').textContent = `SSID: ${response.data.ssid || args[2] || args[0]}`;
-                        // }
-                        appendToTerminal("Stats cards and Handshake Control Panel card are STUBS and not dynamically updated yet.");
+                    if (response.status === 'success' || response.status === 'success_with_errors') {
+                        userMessage = `Handshake capture process started for BSSID ${args[0]}. File: ${response.file || 'N/A'}. Message: ${response.message}`;
+                        const handshakeCtrlCard = document.querySelector('.hacker-card[data-action="handshake"]');
+                        if (handshakeCtrlCard) {
+                            handshakeCtrlCard.querySelector('.text-xs.bg-yellow-500\\/20').textContent = 'Running';
+                            const stopBtn = document.getElementById('stopHandshakeBtn');
+                            if(stopBtn) stopBtn.disabled = false;
+                        }
+                        updateHandshakesCapturedStats(); // Update stats after a capture attempt
                     } else {
                         userMessage = `Error starting handshake capture: ${response.message || 'Unknown error'}`;
                         console.error("Handshake capture error response:", response);
+                        const handshakeCtrlCard = document.querySelector('.hacker-card[data-action="handshake"]');
+                        if (handshakeCtrlCard) {
+                             handshakeCtrlCard.querySelector('.text-xs.bg-yellow-500\\/20').textContent = 'Error';
+                        }
                     }
                     appendToTerminal(userMessage);
                     if (response.status !== 'success') appendToTerminal(`Details: <pre>${JSON.stringify(response, null, 2)}</pre>`);
                     break;
                 case 'deauth':
-                    if (args.length < 1) {
-                        appendToTerminal("Usage: deauth &lt;bssid&gt; [client_mac] [count] [interface]");
+                    if (args.length < 1 || args[0].toUpperCase() === "YOUR_BSSID_HERE") {
+                        appendToTerminal("Usage: deauth &lt;target_bssid&gt; [client_mac] [count] [interface]<br>Replace YOUR_BSSID_HERE with an actual BSSID.");
                         break;
                     }
                     appendToTerminal(`Starting deauth attack on BSSID ${args[0]}...`);
-                    response = await startDeauthAttack(args[0], args[1], args[2], args[3]);
-                    if (response.status === 'success' && response.data) {
-                        userMessage = `Deauth attack command sent for ${args[0]}. Status: ${response.message || 'Check logs/events'}`;
+                    response = await startDeauthAttack(args[0], args[1], args[2], args[3]); // args are target_bssid, client_mac, count, iface
+                    if (response.status === 'success') { // Simplified check, specific data structure might vary
+                        userMessage = `Deauth attack command sent for ${args[0]}. Status: ${response.message || 'Completed. Check logs.'}`;
                         // TODO: Make UI updates more robust
                         // const deauthAttacksCard = document.querySelector('.glass-effect.rounded-xl.p-6:nth-child(3) h3');
                         // if (deauthAttacksCard && response.data.deauth_attacks_count) deauthAttacksCard.textContent = response.data.deauth_attacks_count;
@@ -359,6 +360,24 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                     appendToTerminal(userMessage);
                     if (response.status !== 'success') appendToTerminal(`Details: <pre>${JSON.stringify(response, null, 2)}</pre>`);
+                    break;
+                case 'generate_report':
+                    appendToTerminal("Generating reports...");
+                    response = await generateReports();
+                    if (response.status === 'success' || response.status === 'no_events_or_failure') { // Backend returns 200 even if no events
+                        userMessage = response.message || "Report generation process finished.";
+                        if(response.json_report_path) {
+                            userMessage += `<br>JSON report: ${response.json_report_path.replace(/</g, "&lt;").replace(/>/g, "&gt;")}`;
+                        }
+                        if(response.markdown_report_path) {
+                            userMessage += `<br>Markdown report: ${response.markdown_report_path.replace(/</g, "&lt;").replace(/>/g, "&gt;")}`;
+                        }
+                    } else {
+                        userMessage = `Error generating reports: ${response.message || 'Unknown error'}`;
+                        console.error("Generate reports error response:", response);
+                    }
+                    appendToTerminal(userMessage);
+                    if (!(response.status === 'success' || response.status === 'no_events_or_failure')) appendToTerminal(`Details: <pre>${JSON.stringify(response, null, 2)}</pre>`);
                     break;
                 case 'clear':
                     while (terminalOutput.children.length > 1 && terminalOutput.firstChild !== terminalOutput.querySelector('.flex.items-center:has(input#terminalInput)')) {
@@ -405,7 +424,153 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   const topNavInterfaceValue = document.getElementById('top-nav-interface-value');
-  // This element is updated by the 'monitor' command. (TODO: Make this update more robust)
+
+  function updateTopNavInterface(interfaceName) {
+    if (topNavInterfaceValue && interfaceName) {
+      topNavInterfaceValue.textContent = interfaceName;
+    } else if (topNavInterfaceValue) {
+      topNavInterfaceValue.textContent = "N/A"; // Default if name is not provided
+    }
+  }
+
+  async function fetchAndUpdateDefaultMonitorInterface() {
+    try {
+      const response = await fetch("/api/interfaces/default_monitor");
+      if (response.ok) {
+        const data = await response.json();
+        if (data.status === "success" && data.interface) {
+          updateTopNavInterface(data.interface);
+        } else {
+          updateTopNavInterface("Error"); // Or some other error indicator
+          console.warn("Failed to get default monitor interface from API:", data.message);
+        }
+      } else {
+        updateTopNavInterface("Error");
+        console.error("Error fetching default monitor interface:", response.statusText);
+      }
+    } catch (error) {
+      updateTopNavInterface("Error");
+      console.error("Network error fetching default monitor interface:", error);
+    }
+  }
+
+  async function generateReports() {
+    // No body needed for this POST request as per current backend
+    return await postData("/api/reporting/generate", {});
+  }
+
+  async function updateRootStatusDisplay() {
+    try {
+        const response = await fetch('/api/system/root_status'); // GET request
+        const rootStatusDiv = document.getElementById('rootStatusDisplay');
+        if (!rootStatusDiv) {
+            console.error("rootStatusDisplay element not found in HTML.");
+            return;
+        }
+
+        if (response.ok) {
+            const data = await response.json();
+            if (data.is_root) {
+                rootStatusDiv.textContent = 'Active';
+                rootStatusDiv.classList.remove('text-red-400');
+                rootStatusDiv.classList.add('text-green-400');
+            } else {
+                rootStatusDiv.textContent = 'Inactive - Privileges Issue';
+                rootStatusDiv.classList.remove('text-green-400');
+                rootStatusDiv.classList.add('text-red-400');
+                appendToTerminal("<span class='text-red-400'>WARNING: Server is not running with root privileges. Most features will fail.</span>");
+            }
+        } else {
+            rootStatusDiv.textContent = 'Error';
+            rootStatusDiv.classList.remove('text-green-400');
+            rootStatusDiv.classList.add('text-red-400');
+            appendToTerminal("<span class='text-red-400'>Error fetching root status from server.</span>");
+            console.error("Error fetching root status:", response.statusText);
+        }
+    } catch (error) {
+        const rootStatusDiv = document.getElementById('rootStatusDisplay');
+        if (rootStatusDiv) {
+            rootStatusDiv.textContent = 'Error';
+            rootStatusDiv.classList.remove('text-green-400');
+            rootStatusDiv.classList.add('text-red-400');
+        }
+        console.error('Network error fetching root status:', error);
+        appendToTerminal("<span class='text-red-400'>Network error fetching root status from server.</span>");
+    }
+  }
+
+  async function stopHandshakeCapture() {
+    appendToTerminal("Attempting to stop handshake capture...");
+    const response = await postData("/api/handshake/stop", {});
+    const handshakeCtrlCard = document.querySelector('.hacker-card[data-action="handshake"]');
+    const stopBtn = document.getElementById('stopHandshakeBtn');
+
+    if (response.status === "success") {
+        appendToTerminal(`Handshake capture stop initiated: ${response.message}`);
+        if (handshakeCtrlCard) {
+            handshakeCtrlCard.querySelector('.text-xs.bg-yellow-500\\/20').textContent = 'Stopped';
+        }
+        if(stopBtn) stopBtn.disabled = true;
+    } else {
+        appendToTerminal(`Error stopping handshake capture: ${response.message || 'Unknown error'}`);
+        if (handshakeCtrlCard) {
+            // Keep status as Running or Error if stop failed, or set to Unknown
+            // For now, assume it might still be running if stop failed.
+        }
+    }
+    // Optionally, update stats again if stopping might log a final count, though less likely
+    // updateHandshakesCapturedStats();
+  }
+
+  const stopHandshakeBtn = document.getElementById('stopHandshakeBtn');
+  if (stopHandshakeBtn) {
+    stopHandshakeBtn.disabled = true; // Initially disabled
+    stopHandshakeBtn.addEventListener('click', stopHandshakeCapture);
+  }
+
+  async function updateHandshakesCapturedStats() {
+    try {
+        const response = await fetch('/api/stats/handshakes_count');
+        const countEl = document.getElementById('handshakesCapturedCount');
+        const lastEl = document.getElementById('handshakesCapturedLast');
+
+        if (!countEl || !lastEl) {
+            console.error("Handshake stats elements not found in HTML.");
+            return;
+        }
+
+        if (response.ok) {
+            const data = await response.json();
+            if (data.status === "success") {
+                countEl.textContent = data.count !== undefined ? data.count : 'N/A';
+                let lastTimeText = "Last: N/A";
+                if (data.last_capture_timestamp) {
+                    // Simple date formatting, can be improved with a library like moment.js or date-fns for "X minutes ago"
+                    const d = new Date(data.last_capture_timestamp);
+                    lastTimeText = `Last: ${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
+                }
+                lastEl.innerHTML = `<i class="fas fa-lock-open mr-1"></i> ${lastTimeText.replace(/</g, "&lt;").replace(/>/g, "&gt;")}`;
+            } else {
+                countEl.textContent = 'Error';
+                lastEl.textContent = 'Last: Error';
+            }
+        } else {
+            countEl.textContent = 'Error';
+            lastEl.textContent = 'Last: Error';
+            console.error("Error fetching handshake stats:", response.statusText);
+        }
+    } catch (error) {
+        const countEl = document.getElementById('handshakesCapturedCount');
+        const lastEl = document.getElementById('handshakesCapturedLast');
+        if(countEl) countEl.textContent = 'Error';
+        if(lastEl) lastEl.textContent = 'Last: Error';
+        console.error('Network error fetching handshake stats:', error);
+    }
+  }
+
+  fetchAndUpdateDefaultMonitorInterface(); // Fetch on initial load
+  updateRootStatusDisplay(); // Fetch root status on load
+  updateHandshakesCapturedStats(); // Fetch handshake stats on load
 
     if (terminalOutput && terminalInput) {
         const initialMessages = [

@@ -1,10 +1,17 @@
+"""
+Network utility functions for checking interface status and properties.
+
+Provides capabilities to verify if a network interface exists and to check
+if a wireless interface is currently in monitor mode by invoking system
+commands like 'ip' and 'iwconfig'.
+"""
 import subprocess
 import logging
 import re
 import sys # For __main__ block logging configuration
 
 # Initialize logger for this module
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 def interface_exists(interface_name: str) -> bool:
     """
