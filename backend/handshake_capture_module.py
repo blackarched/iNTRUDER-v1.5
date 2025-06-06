@@ -189,8 +189,6 @@ class HandshakeCapture:
             self.process = None # Clear after handling
         else:
             logger.info("HandshakeCapture shutdown: No active capture process found.")
-        else:
-            logger.info("Handshake capture process not running or already stopped.")
 
 # Example Usage (for testing)
 if __name__ == '__main__':
