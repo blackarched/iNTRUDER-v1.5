@@ -2,7 +2,7 @@ import subprocess
 import logging
 import time
 import os
-from .. import config
+from . import config
 from ..core.network_utils import interface_exists, is_monitor_mode # Import for interface checks
 from ..core.event_logger import log_event # For consistency, though not explicitly requested for this module's events yet
 
