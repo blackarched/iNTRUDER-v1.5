@@ -1,4 +1,4 @@
-from .. import config # In backend/reporting.py
+from . import config # In backend/reporting.py
 import os
 import json
 import logging
@@ -10,8 +10,8 @@ class ReportGenerator:
     def __init__(self, event_log_file=None):
         # Determine event log file path
         # This needs to be robust in case config.EVENT_LOG_FILE isn't set, though it should be.
-        default_event_log = 'session_events.jsonl' # Default if not in config
-        configured_event_log = getattr(config, 'EVENT_LOG_FILE', default_event_log)
+        # config.EVENT_LOG_FILE is expected to be set by the main application configuration.
+        configured_event_log = config.EVENT_LOG_FILE # Will raise AttributeError if not set
 
         # If event_log_file is provided as an argument, it overrides config.
         # Otherwise, use the one from config (or default if config lacks it).
@@ -20,8 +20,8 @@ class ReportGenerator:
         logger.info(f"ReportGenerator initialized. Using event log file: {self.event_log_file}")
 
         # Determine reports directory
-        default_reports_dir = 'reports' # Default if not in config
-        self.reports_dir = getattr(config, 'REPORTS_DIR', default_reports_dir)
+        # config.REPORTS_DIR is expected to be set by the main application configuration.
+        self.reports_dir = config.REPORTS_DIR # Will raise AttributeError if not set
 
         if not os.path.isabs(self.reports_dir):
             # Assuming project root is the current working directory when server starts

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class MACChanger:
     def __init__(self):
-        if not self._check_macchanger_installed():
+        if not self.is_macchanger_available():
             logger.error("macchanger command not found. MACChanger utility will not function.")
             # You could raise an exception here or let it fail when methods are called.
             # For now, logging an error. Methods will likely fail with FileNotFoundError.
@@ -20,7 +20,7 @@ class MACChanger:
             pass
 
 
-    def _check_macchanger_installed(self) -> bool:
+    def is_macchanger_available(self) -> bool:
         """Checks if macchanger is installed and executable."""
         try:
             process = subprocess.run(['macchanger', '--version'], capture_output=True, text=True, check=True)
@@ -274,7 +274,7 @@ if __name__ == '__main__':
     # --- WARNING ---
 
     changer = MACChanger()
-    if not changer._check_macchanger_installed():
+    if not changer.is_macchanger_available():
         logger.error("macchanger is not installed. Aborting tests.")
         exit(1)
 

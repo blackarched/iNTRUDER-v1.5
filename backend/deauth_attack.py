@@ -1,9 +1,9 @@
 import subprocess
 import logging
-from backend import config
-from backend.plugins.opsec_utils import MACChanger
-from backend.core.network_utils import interface_exists, is_monitor_mode # Import for interface checks
-from backend.core.event_logger import log_event # For consistency
+from . import config
+from .plugins.opsec_utils import MACChanger
+from .core.network_utils import interface_exists, is_monitor_mode # Import for interface checks
+from .core.event_logger import log_event # For consistency
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class DeauthAttack:
             # We'll add explicit checks before the aireplay-ng command.
             logger.info(f"MAC_CHANGE_ENABLED is True for deauth on {self.iface}.")
             mac_changer_instance = MACChanger()
-            if mac_changer_instance._check_macchanger_installed():
+            if mac_changer_instance.is_macchanger_available():
                 original_mac_address = mac_changer_instance.get_current_mac(self.iface)
                 if original_mac_address:
                     logger.info(f"Original MAC for {self.iface}: {original_mac_address}")

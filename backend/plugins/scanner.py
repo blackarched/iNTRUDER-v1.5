@@ -19,7 +19,7 @@ class AdaptiveScanner:
         self.interface = interface
         self.mac_changer = MACChanger()
         self.mac_spoofing_active_for_scan = False # Track if MAC was changed by this instance for this scan
-        if config.MAC_CHANGE_ENABLED and not self.mac_changer._check_macchanger_installed():
+        if config.MAC_CHANGE_ENABLED and not self.mac_changer.is_macchanger_available():
             logger.warning("MAC_CHANGE_ENABLED is True, but macchanger is not found. MAC spoofing for scanner will be disabled for this session.")
             self._mac_changer_available = False
         else:

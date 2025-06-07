@@ -1,5 +1,6 @@
 import subprocess
 import logging
+from . import config
 
 logger = logging.getLogger(__name__) # This will inherit root logger's config
 

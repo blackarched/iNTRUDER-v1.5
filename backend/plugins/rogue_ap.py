@@ -26,6 +26,7 @@ class RogueAP:
         self.hostapd_conf = None
         self.dnsmasq_conf = None
         self._tempdir = tempfile.mkdtemp(prefix="rogue_ap_")
+        self.service_processes = {}
 
     def generate_configs(self):
         # hostapd.conf
@@ -80,41 +81,47 @@ log-dhcp
         self.setup_iptables()
 
         # Launch hostapd
-        hostapd = subprocess.Popen(['hostapd', self.hostapd_conf])
+        self.service_processes['hostapd'] = subprocess.Popen(['hostapd', self.hostapd_conf])
         logger.info("hostapd launched")
 
         # Launch dnsmasq
-        dnsmasq = subprocess.Popen(['dnsmasq', '-C', self.dnsmasq_conf])
+        self.service_processes['dnsmasq'] = subprocess.Popen(['dnsmasq', '-C', self.dnsmasq_conf])
         logger.info("dnsmasq launched")
 
         # Launch sslstrip
-        sslstrip = self.start_sslstrip()
+        self.service_processes['sslstrip'] = self.start_sslstrip()
         logger.info("Rogue AP services started.")
         log_event("rogue_ap_started", {"interface": self.iface, "ssid": self.ssid, "channel": self.channel, "gateway_ip": self.gateway_ip, "status": "success"})
-        return {'hostapd': hostapd, 'dnsmasq': dnsmasq, 'sslstrip': sslstrip}
+        return self.service_processes
 
     def cleanup(self):
         logger.info("Cleaning up Rogue AP services and rules...")
-        log_event("rogue_ap_stopping", {"interface": self.iface, "ssid": self.ssid})
-        # Store Popen objects in self.processes to terminate them properly
-        # For now, using pkill as per original code.
-        # TODO: Refactor to store Popen objects from start_services and terminate them directly.
-        processes_to_kill = ['hostapd', 'dnsmasq', 'sslstrip']
-        for proc_name in processes_to_kill:
-            logger.info(f"Attempting to stop process: {proc_name} using pkill -f {proc_name}")
-            try:
-                # Using check=False to handle non-zero exit codes from pkill (e.g., if process not found)
-                result = subprocess.run(['pkill', '-f', proc_name], capture_output=True, text=True, timeout=5)
-                if result.returncode == 0:
-                    logger.info(f"Successfully sent kill signal to processes matching {proc_name}. Output: {result.stdout.strip()}")
-                else:
-                    # pkill returns 1 if no processes matched, which is not necessarily an error in cleanup.
-                    logger.warning(f"pkill -f {proc_name} exited with code {result.returncode}. stderr: {result.stderr.strip()}, stdout: {result.stdout.strip()}")
-            except subprocess.TimeoutExpired:
-                 logger.error(f"Timeout trying to pkill -f {proc_name}.", exc_info=True)
-            except Exception as e: # Catch other errors like FileNotFoundError for pkill
-                logger.error(f"Error trying to pkill -f {proc_name}: {e}", exc_info=True)
+        logger.info("Starting cleanup for Rogue AP services...")
 
+        # Terminate stored Popen objects
+        for name, process in list(self.service_processes.items()): # Iterate over a copy
+            if process and process.poll() is None: # Check if process exists and is running
+                logger.info(f"Stopping service '{name}' (PID: {process.pid})...")
+                process.terminate()
+                try:
+                    process.wait(timeout=10) # Wait for graceful termination
+                    logger.info(f"Service '{name}' (PID: {process.pid}) terminated successfully.")
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"Service '{name}' (PID: {process.pid}) did not terminate gracefully. Killing.")
+                    process.kill()
+                    try:
+                        process.wait(timeout=5) # Wait for kill
+                        logger.info(f"Service '{name}' (PID: {process.pid}) killed.")
+                    except subprocess.TimeoutExpired:
+                        logger.error(f"Failed to get return code for killed service '{name}' (PID: {process.pid}).")
+                except Exception as e_wait:
+                    logger.error(f"Error waiting for service '{name}' (PID: {process.pid}) to stop: {e_wait}", exc_info=True)
+            else:
+                logger.info(f"Service '{name}' not running or already stopped.")
+            # Remove from dict after processing
+            self.service_processes.pop(name, None)
+
+        logger.info("Finished Rogue AP service cleanup attempts.")
         if os.path.exists(self._tempdir):
             logger.info(f"Attempting to remove temporary directory: {self._tempdir}")
             try:
