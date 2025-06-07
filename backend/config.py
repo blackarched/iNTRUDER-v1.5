@@ -9,11 +9,10 @@ REPORTS_DIR = "reports"
 AIRCRACK_TIMEOUT = 3600
 
 # Paths to shell scripts
-SCAN_SH_PATH = "./scan.sh" # Not primary, but validated if set
 START_MON_SH_PATH = "./start-mon.sh"
 
 # Default wordlist - set to a non-existent path for testing validation
-DEFAULT_WORDLIST = "/path/to/non_existent_wordlist.txt"
+DEFAULT_WORDLIST = None
 
 # Handshake capture settings
 HANDSHAKE_CAPTURE_DIR = "captures"

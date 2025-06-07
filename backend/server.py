@@ -1,8 +1,9 @@
+#!/usr/bin/env python3
 # server.py
 """
 Main server entrypoint for iNTRUDER v1.5 with integrated plugins:
 - Rogue AP
-- MITM proxy
+
 - WPS attack
 - Deauth attack
 - Handshake capture
@@ -55,7 +56,6 @@ logger = logging.getLogger(__name__)
 # --- End Root Logger Configuration ---
 
 from .plugins.rogue_ap import RogueAP
-# MITM Plugin has been removed.
 
 from .plugins.wps_attack import WPSAttack
 from .plugins.opsec_utils import MACChanger
@@ -68,7 +68,7 @@ from .core.network_utils import interface_exists, is_monitor_mode # Import for i
 from .reporting import ReportGenerator # Import for reporting
 
 # Flask + SocketIO setup
-app = Flask(__name__)
+app = Flask(__name__, static_folder='../frontend', static_url_path='')
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
@@ -92,10 +92,44 @@ def shutdown_handler(signum, frame):
             _services.pop(name, None) # Remove from active services
 
     logger.info("All services processed. Exiting.")
-    os._exit(0) # Forcing exit, as some subprocesses or threads might hang
+    sys.exit(0) # Forcing exit, as some subprocesses or threads might hang
 
 signal.signal(signal.SIGINT, shutdown_handler)
 signal.signal(signal.SIGTERM, shutdown_handler)
+
+@app.route('/')
+def serve_index():
+    # app.static_folder is already set to '../frontend'
+    return app.send_static_file('index.html')
+
+
+
+@app.errorhandler(400)
+def bad_request_error(error):
+    response = jsonify(message=error.description or "Bad Request")
+    response.status_code = 400
+    return response
+
+@app.errorhandler(404)
+def not_found_error(error):
+    response = jsonify(message=error.description or "Resource not found")
+    response.status_code = 404
+    return response
+
+@app.errorhandler(405)
+def method_not_allowed_error(error):
+    response = jsonify(message=error.description or "Method Not Allowed")
+    response.status_code = 405
+    return response
+
+@app.errorhandler(500)
+def internal_error(error):
+    # Log the exception error.original_exception if available
+    logger.error(f"Server Error: {error}", exc_info=True)
+    response = jsonify(message="Internal server error")
+    response.status_code = 500
+    return response
+
 
 # Endpoint: Start Rogue AP
 @app.route('/api/rogue_ap/start', methods=['POST'])
@@ -126,7 +160,6 @@ def api_stop_rogue_ap():
     ap.cleanup() # This logs "rogue_ap_stopped"
     return jsonify({'status': 'stopped'}), 200
 
-# MITM Plugin and its routes have been removed.
 
 
 # Endpoint: Start WPS Attack
@@ -455,6 +488,13 @@ if __name__ == '__main__':
     # When using eventlet or gevent, Flask's native debug mode (use_reloader=True) can cause issues.
     # SocketIO's run method handles this. If flask_debug_mode is True, it might enable reloader.
     # It's generally better to keep Flask's reloader off if using eventlet/gevent for SocketIO.
+    logger.info("Validating configuration...")
+    if not validate_config(config):
+        logger.error("Critical configuration validation failed. Please check settings. Server will not start.")
+        sys.exit(1) # Use sys.exit here
+    else:
+        logger.info("Configuration validation successful.")
+
     socketio.run(app, host='0.0.0.0', port=port, debug=flask_debug_mode, use_reloader=False)
 
 # --- Configuration Validation Function ---

@@ -1,84 +1,27 @@
 # backend/core/event_logger.py
 import logging
 import json
+import os
 from datetime import datetime, timezone # Use timezone-aware UTC
 
-# Attempt to import config relative to the backend directory
 # This assumes that when backend.core.event_logger is imported, 'backend' is a known package.
 # This should work if the application is run with `python -m backend.server`
-try:
-    from .. import config
-except ImportError:
-    # Fallback for cases where this module might be run or imported in a context
-    # where the relative import fails (e.g. some testing scenarios or if path structure changes)
-    # This is not ideal for production but can help in certain dev/test setups.
-    # A more robust solution would involve proper packaging and PYTHONPATH setup.
-    import sys
-    import os
-    # Add backend's parent directory to sys.path to allow import of backend.config
-    # This is a bit of a hack. Proper packaging is better.
-    # current_dir = os.path.dirname(os.path.abspath(__file__)) # backend/core
-    # backend_dir = os.path.dirname(current_dir) # backend/
-    # project_root = os.path.dirname(backend_dir) # /app (project root)
-    # if project_root not in sys.path:
-    #    sys.path.insert(0, project_root)
-    # try:
-    #    from backend import config
-    # except ImportError:
-    #    # If it still fails, create a dummy config object for basic operation
-    #    # This is to prevent crashing if config is absolutely unfindable in some contexts.
-    #    class DummyConfig:
-    #        EVENT_LOG_FILE = 'fallback_session_events.jsonl'
-    #        LOG_LEVEL = 'DEBUG' # Default log level for the logger itself
-    #    config = DummyConfig()
-    #    print(f"WARNING: backend.config not found, using fallback for event_logger. Events will go to {config.EVENT_LOG_FILE}", file=sys.stderr)
-
-    # Simpler fallback for now if the above is too complex for the environment:
-    # Assume config might be in the same directory or globally accessible in test scenarios.
-    # This will likely cause issues if not run via `python -m backend.server`.
-    # The primary `from .. import config` should be the one that works.
-    class DummyConfig:
-        EVENT_LOG_FILE = 'fallback_session_events.jsonl'
-        LOG_LEVEL = 'DEBUG'
-    config = DummyConfig()
-    # This fallback is problematic; the `from .. import config` should be made to work.
-    # For now, proceeding with the assumption that the primary import works when server is run.
-    # The issue is that opsec_utils also needs config and is in plugins.
-    # The server.py is in backend/.
-    # backend/config.py
-    # backend/core/event_logger.py -> needs ../config.py
-    # backend/plugins/opsec_utils.py -> needs ../config.py
-    # backend/plugins/scanner.py -> needs ../config.py
-    # This structure is consistent for `from .. import config`.
-    # The issue might be if this file (event_logger.py) itself is run standalone.
-
+from .. import config
 logger = logging.getLogger(__name__)
-
-# Ensure EVENT_LOG_FILE is available, defaulting if necessary.
-# This default is more of a safeguard; config should always be primary.
-EVENT_LOG_FILENAME = 'session_events.jsonl'
-try:
-    EVENT_LOG_FILENAME = config.EVENT_LOG_FILE
-except AttributeError:
-    logger.warning(f"'EVENT_LOG_FILE' not found in config. Defaulting to '{EVENT_LOG_FILENAME}'. This might indicate a config loading issue.")
-    # Create a dummy attribute on config if it's the DummyConfig and it's missing
-    if not hasattr(config, 'EVENT_LOG_FILE'):
-         setattr(config, 'EVENT_LOG_FILE', EVENT_LOG_FILENAME)
-
 
 def log_event(event_type: str, data: dict):
     """
     Logs a structured event to a JSON Lines file.
     """
     try:
+        # Use config.EVENT_LOG_FILE directly
+        log_file_path = config.EVENT_LOG_FILE
+
         event_data = {
             "timestamp": datetime.now(timezone.utc).isoformat(), # UTC timestamp
             "event_type": event_type,
             "details": data  # data should be a dictionary of relevant information
         }
-
-        # Use the EVENT_LOG_FILENAME which has fallback logic
-        log_file_path = EVENT_LOG_FILENAME
 
         # Ensure the directory for the log file exists (if it's configured with a path)
         log_dir = os.path.dirname(log_file_path)
